@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<title>Bitácora del Rancho</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:#0e1a0a;font-family:Georgia,serif;color:#d8ecc0;min-height:100vh;}
+#app{max-width:480px;margin:0 auto;min-height:100vh;}
+input,select,textarea,button{font-family:Georgia,serif;}
+select option{background:#1a2e12;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script>
+const {useState,useEffect,createElement:h} = React;
+
+// ── Dropbox ──────────────────────────────────────────────────────────────────
+const DBX_TOKEN = "sl.u.AGapVh5fdPw2LXtIqIoPlvlTqh7DDBCTmC2vl94vSlVU1eJ9KEuy6du_N-1xKhX_S1jpIjVeF9V863YStlTt9Xf6wQxNDPck-mnJgz4PGgclUmhAiRki2FJ7dl3nW6cPAsqQtTiia-fc-TjN0oIiuLed1WQO6vs0jIQIdSIG5BJksc4LmFJ59Cp5W2ZQCCRnSuJr66hCLM-LqMWbZi5lJtGSbCw1FnBUXvhQ5nzwzRkkimW1Z8JJQDFLtS8NnxhH-j8x_SC02d-b7HupqHzOfpptUFlziLaPz2cCj99FcD4EFzwdmC-EHj-0DyJ8MFYOOv_9FFAryO069nfLApOSmXUgkHtdwHH33uVbCjTM-EvPQ24Ri9nsprw4sBqJtQ0iZkLIwaIV8y3VN7xTvuIcQbFtYoKdYk90_RZO9RZH6lICfOqio_452JQ9Twa2lbXRlIhzTlaymJSSAClckuD7nPiiQJgTE7KFYwONRTB2BR3zHHm-uLFMz5Fvl8-s4OWBb3F1dFlxl6wTsYJVHjHs9PsdyrWhvANpBcewGG6f0wKfvQe5mTxIFq2UDCHOy60lf0BwW61PTPzwFebsGNcuf9s-ZE7hqyi1eLKmyKEszHh5yS3V54mBir-g28cUsbS-ajd8yFqUEl4NdNEe7iJ28aTvtT0I1HgmRUFn2MxoB2MlcUpQZJ0ym-tTfNrvGjGVboKiYmiLgeUlg-RlEZGMIQiFqoszLR3X0pAYSlFt8aK4O51RFXnrS_tkscjefA76V7Z55ER_bY8jAAkvcS8lnIQTFBjyJTonD0lJG-JElL6hwzMnQ-ydRIFUSCU1qS1TcRrn2IliplS_zvdzpW0uy2WusMly0QC7jpIBO9KmkXbk_6yn8F2W3FpFsDFGVnvEMF9zZDpeIW0o7skpyI6XU0ixYNUuhLtxnKc2hyv6fvzw5ffSXeyAXq5_JueY2svxMz7mfvMqifXIMANNJt5jVuN9hHcqBoLH9zpixak4cU_olh1aTrU2jFGH9ugeedVdcml28GTQsH2oNxh2cGa_wG51VoCuAUeVRj7YlQ18l9RTnGb9eCf10ccDInxwnxeJ-BbvMZpJvM7gDsHQh8mfdao9NIySoQiFG__XF-hY85BI9Fkg580kXZYtkuEuGE3htJ9gu6xozsaam3wwK8jNIfP9WrnsB-9ELUZKl3EI9qrkVIY-LvfPygMr1l7Id-W4k4ZXzi-sNZ3JjnYmILsrCSObEUWAFW8zgWM2bI89r5bVWmTmFV9NIVwpUk4_ObCAQtacfCw0JBQZTov9AumaMEHI3iOf0eV3VXirbqL2UCa6ZCLXsmsT4Nu3xGKctmDTcHuD4C7Et77l53qoiXWfAzWITFUofYoNx1NZt2oYm1iNOmmMwke2D6WIJg3IzWI4Ze03OxwF2IVJCt6CshTzq-VWMndkvHyT3k3ZFKcxZyLsgS937dUUBD-VkDCnk_8GE8J93jUryPdmhxJ9IhBX9RAD";
+const DBX_FOLDER = "/BitacoraRancho";
+
+async function dbxUpload(path, content) {
+  const res = await fetch("https://content.dropboxapi.com/2/files/upload", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + DBX_TOKEN,
+      "Dropbox-API-Arg": JSON.stringify({ path, mode: "overwrite", autorename: false }),
+      "Content-Type": "application/octet-stream"
+    },
+    body: content
+  });
+  if (!res.ok) throw new Error("Dropbox upload error: " + res.status);
+  return res.json();
+}
+
+async function dbxDownload(path) {
+  const res = await fetch("https://content.dropboxapi.com/2/files/download", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + DBX_TOKEN,
+      "Dropbox-API-Arg": JSON.stringify({ path })
+    }
+  });
+  if (res.status === 409) return null; // archivo no existe
+  if (!res.ok) throw new Error("Dropbox download error: " + res.status);
+  return res.json();
+}
+
+// Sube toda la semana a Dropbox como JSON
+async function subirSemana(semanaNum) {
+  const datos = {};
+  DIAS.forEach(dia => { datos[dia] = load(`s${semanaNum}_${dia}`, []); });
+  const path = `${DBX_FOLDER}/semana_${semanaNum}.json`;
+  await dbxUpload(path, JSON.stringify(datos, null, 2));
+}
+
+// ── Catálogos ──────────────────────────────────────────────────────────────
+const RANCHOS_CONFIG = [
+  {
+    id:"vista_h", nombre:"Rancho Vista Hermosa",
+    secciones:[
+      {id:"tabla1",      nombre:"Tabla 1",       ha:"8 ha"},
+      {id:"tabla2",      nombre:"Tabla 2",       ha:"5 ha"},
+      {id:"plantel",     nombre:"Plantel",        ha:"8.5 ha"},
+      {id:"plantel_nvo", nombre:"Plantel Nuevo",  ha:"3.5 ha"},
+    ]
+  },
+  {
+    id:"loma_bonita", nombre:"Rancho Loma Bonita",
+    secciones:[
+      {id:"naranjal1", nombre:"Naranjal 1", ha:"5.84 ha"},
+      {id:"naranjal2", nombre:"Naranjal 2", ha:"1.5 ha"},
+      {id:"limonar",   nombre:"Limonar",    ha:"6 ha"},
+    ]
+  },
+  {
+    id:"la_union", nombre:"Rancho La Unión",
+    secciones:[
+      {id:"tabla1", nombre:"Tabla 1", ha:""},
+      {id:"tabla2", nombre:"Tabla 2", ha:""},
+      {id:"tabla3", nombre:"Tabla 3", ha:""},
+    ]
+  },
+  {id:"arenal",     nombre:"Rancho El Arenal", secciones:[]},
+  {id:"casa",       nombre:"Casa La Unión",    secciones:[]},
+  {id:"bellissima", nombre:"Bellissima",        secciones:[]},
+];
+
+const ACTIVIDADES = [
+  "Fumigar Herbicida c/Bomba Mochila (Tambo 200lt)",
+  "Fumigar Herbicida c/Tractor (Bomba 400lt)",
+  "Foliar c/Moto-Bombas (Tambo 200lt)",
+  "Foliar c/Bomba de Mochila",
+  "Foliar c/Tractor (Bomba 400lt)",
+  "Chapear c/Machete",
+  "Chapear c/Desbrozadoras",
+  "Chapear c/Tractor",
+  "Tirar Palos Secos c/Motosierra",
+  "Mantenimiento Linderos",
+  "Quitar Corriguela/Cucho/Bejuco/Rama Seca",
+  "Podar para Floración/Formación Plantel",
+  "Limpieza, Faena, Mandados",
+  "Azadón al Hilo",
+  "Arado c/Tractor",
+  "Cuidar",
+  "Resembrar Plantas",
+  "Regar",
+  "Cosechar",
+  "Fertilizar",
+  "Otra"
+];
+
+const DIAS = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
+const DEFAULT_JORNALEROS = [
+  "Gonzalo","Macario","Valentín","Raúl","Ángel",
+  "Alfonso","Heriberto","Edwin","Hugo","Fernando",
+  "Felipe","Ignacio","Juan"
+];
+
+const fmtMXN = n => "$" + Number(n||0).toLocaleString("es-MX");
+const hoy = () => { const d=new Date(); return DIAS[d.getDay()===0?6:d.getDay()-1]; };
+const semNum = () => { const n=new Date(),s=new Date(n.getFullYear(),0,1); return Math.ceil(((n-s)/86400000+s.getDay()+1)/7); };
+function load(k,def){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):def; }catch{ return def; }}
+function save(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{}}
+
+const getRanchoConfig = id => RANCHOS_CONFIG.find(r=>r.id===id);
+const getLugarLabel = (ranchoId, seccionId) => {
+  const rc = getRanchoConfig(ranchoId);
+  if(!rc) return "";
+  if(!seccionId || !rc.secciones.length) return rc.nombre;
+  const sec = rc.secciones.find(s=>s.id===seccionId);
+  return rc.nombre + (sec ? " · " + sec.nombre + (sec.ha?" ("+sec.ha+")":"") : "");
+};
+
+// ── Estilos ──────────────────────────────────────────────────────────────────
+const C = {
+  hdr:{background:"linear-gradient(135deg,#1a3a0e,#142e0a)",padding:"14px 16px",borderBottom:"1px solid rgba(120,200,60,0.18)"},
+  inp:{width:"100%",background:"rgba(255,255,255,0.07)",border:"1px solid rgba(140,200,80,0.22)",borderRadius:10,color:"#e8f8d0",padding:"12px 13px",fontSize:15,outline:"none",boxSizing:"border-box"},
+  bigBtn:{width:"100%",background:"linear-gradient(135deg,#2a6a14,#1e5010)",border:"none",borderRadius:12,color:"#c8f090",padding:"15px",fontSize:16,fontWeight:700,cursor:"pointer"},
+  ghost:{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,color:"#8aaa70",padding:"11px 14px",fontSize:14,cursor:"pointer",width:"100%"},
+  card:{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(120,180,60,0.14)",borderRadius:12,padding:"13px 14px",marginBottom:9},
+  dbxBtn:{width:"100%",background:"linear-gradient(135deg,#0061ff,#0047cc)",border:"none",borderRadius:12,color:"#fff",padding:"14px",fontSize:15,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8},
+};
+const chip = active => ({
+  background:active?"rgba(80,160,30,0.28)":"rgba(255,255,255,0.05)",
+  border:`2px solid ${active?"#70c040":"rgba(255,255,255,0.1)"}`,
+  borderRadius:12,color:active?"#d8f8a0":"#7a9a68",
+  padding:"14px",fontSize:15,cursor:"pointer",width:"100%",textAlign:"left",fontWeight:active?700:400,display:"block"
+});
+const lbl = {fontSize:10,color:"#6a9050",letterSpacing:1.8,textTransform:"uppercase",display:"block",marginBottom:5};
+
+function Hdr({titulo,sub,onBack}){
+  return h("div",{style:C.hdr},
+    h("div",{style:{display:"flex",alignItems:"center",gap:12}},
+      h("button",{onClick:onBack,style:{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:9,color:"#8ab060",padding:"9px 13px",fontSize:18,cursor:"pointer"}},"←"),
+      h("div",null,
+        sub&&h("div",{style:{fontSize:10,color:"#5a8040",letterSpacing:2,marginBottom:1}},sub.toUpperCase()),
+        h("div",{style:{fontSize:17,fontWeight:700,color:"#b8e870"}},titulo)
+      )
+    )
+  );
+}
+function FixBot({children}){
+  return h("div",{style:{position:"fixed",bottom:0,left:0,right:0,maxWidth:480,margin:"0 auto",padding:"12px 14px 18px",background:"linear-gradient(to top,#0e1a0a 70%,transparent)"}},children);
+}
+
+// ── Botón Dropbox con estado ──────────────────────────────────────────────────
+function BtnDropbox({semanaNum}){
+  const [estado,setEstado] = useState("idle"); // idle | subiendo | ok | error
+
+  const subir = async () => {
+    setEstado("subiendo");
+    try {
+      await subirSemana(semanaNum);
+      setEstado("ok");
+      setTimeout(()=>setEstado("idle"),3000);
+    } catch(e) {
+      console.error(e);
+      setEstado("error");
+      setTimeout(()=>setEstado("idle"),3000);
+    }
+  };
+
+  const textos = {
+    idle:    ["☁️","Guardar semana en Dropbox"],
+    subiendo:["⏳","Subiendo..."],
+    ok:      ["✅","¡Guardado en Dropbox!"],
+    error:   ["❌","Error — intenta de nuevo"],
+  };
+  const colores = {
+    idle:"linear-gradient(135deg,#0061ff,#0047cc)",
+    subiendo:"linear-gradient(135deg,#4a4a4a,#333)",
+    ok:"linear-gradient(135deg,#1a7a1a,#155a15)",
+    error:"linear-gradient(135deg,#aa2020,#881515)",
+  };
+
+  return h("button",{
+    onClick:subir,
+    disabled:estado==="subiendo",
+    style:{...C.dbxBtn,background:colores[estado],opacity:estado==="subiendo"?0.8:1}
+  }, textos[estado][0]+" "+textos[estado][1]);
+}
+
+// ── FormActividad ────────────────────────────────────────────────────────────
+function FormActividad({initial,onSave,onClose,jornalerosConfig,dia}){
+  const initRancho = initial ? RANCHOS_CONFIG.find(r=>r.nombre===initial.rancho||r.id===initial.ranchoId) : null;
+  const [paso,setPaso] = useState(initial ? 2 : 0);
+  const [ranchoId,setRanchoId] = useState(initial?.ranchoId || initRancho?.id || "");
+  const [seccionId,setSeccionId] = useState(initial?.seccionId || "");
+  const [actividad,setActividad] = useState(initial?.actividad || ACTIVIDADES[0]);
+  const [selJ,setSelJ] = useState(()=>{
+    if(initial?.jornaleros){const m={};initial.jornaleros.forEach(j=>{m[j.nombre]=String(j.pago);});return m;}
+    return{};
+  });
+  const [nota,setNota] = useState(initial?.nota||"");
+
+  const ranchoConfig = getRanchoConfig(ranchoId);
+  const tieneSecciones = ranchoConfig?.secciones?.length > 0;
+  const toggleJ=n=>setSelJ(p=>{if(p[n]!==undefined){const x={...p};delete x[n];return x;}return{...p,[n]:""}; });
+  const setPago=(n,v)=>setSelJ(p=>({...p,[n]:v}));
+  const totalRaya=Object.values(selJ).reduce((s,v)=>s+Number(v||0),0);
+  const lugarLabel = getLugarLabel(ranchoId, seccionId);
+
+  const doSave=()=>{
+    onSave({ranchoId,seccionId,rancho:lugarLabel,actividad,
+      jornaleros:Object.entries(selJ).map(([nombre,pago])=>({nombre,pago:Number(pago||0)})),
+      nota, id:initial?.id||Date.now()});
+  };
+
+  if(paso===0) return h("div",{style:{background:"#0e1a0a",minHeight:"100vh"}},
+    h(Hdr,{titulo:"¿En qué rancho?",sub:dia,onBack:onClose}),
+    h("div",{style:{padding:"16px"}},
+      RANCHOS_CONFIG.map(r=>h("button",{key:r.id,
+        onClick:()=>{setRanchoId(r.id);setSeccionId("");r.secciones.length>0?setPaso(1):setPaso(2);},
+        style:{...chip(ranchoId===r.id),marginBottom:10,borderRadius:13}},
+        h("div",{style:{fontWeight:700}},r.nombre),
+        r.secciones.length>0&&h("div",{style:{fontSize:11,color:"#6a9050",marginTop:3}},
+          r.secciones.map(s=>s.nombre+(s.ha?" ("+s.ha+")":"")).join(" · ")
+        )
+      ))
+    )
+  );
+
+  if(paso===1) return h("div",{style:{background:"#0e1a0a",minHeight:"100vh"}},
+    h(Hdr,{titulo:"¿Qué sección?",sub:ranchoConfig?.nombre,onBack:()=>setPaso(0)}),
+    h("div",{style:{padding:"16px"}},
+      ranchoConfig.secciones.map(sec=>h("button",{key:sec.id,
+        onClick:()=>{setSeccionId(sec.id);setPaso(2);},
+        style:{...chip(seccionId===sec.id),marginBottom:10,borderRadius:13}},
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+          h("span",{style:{fontWeight:700}},sec.nombre),
+          sec.ha&&h("span",{style:{fontSize:12,color:"#7ab850",background:"rgba(80,160,30,0.15)",padding:"3px 9px",borderRadius:20}},sec.ha)
+        )
+      ))
+    )
+  );
+
+  if(paso===2) return h("div",{style:{background:"#0e1a0a",minHeight:"100vh"}},
+    h(Hdr,{titulo:"¿Qué actividad?",sub:lugarLabel,onBack:()=>tieneSecciones?setPaso(1):setPaso(0)}),
+    h("div",{style:{padding:"16px"}},
+      ACTIVIDADES.map(a=>h("button",{key:a,
+        onClick:()=>{setActividad(a);setPaso(3);},
+        style:{...chip(actividad===a),marginBottom:8,borderRadius:13}},a))
+    )
+  );
+
+  if(paso===3) return h("div",{style:{background:"#0e1a0a",minHeight:"100vh"}},
+    h(Hdr,{titulo:"¿Quién trabajó?",sub:actividad.length>32?actividad.slice(0,32)+"...":actividad,onBack:()=>setPaso(2)}),
+    h("div",{style:{padding:"14px 14px 110px"}},
+      h("div",{style:{...C.card,background:"rgba(30,60,15,0.4)",marginBottom:14}},
+        h("div",{style:{fontSize:11,color:"#7ab850",marginBottom:2}},lugarLabel),
+        h("div",{style:{fontSize:13,color:"#a0c870",fontStyle:"italic"}},actividad)
+      ),
+      h("div",{style:{fontSize:11,color:"#5a7a40",marginBottom:10}},"Toca el nombre → escribe el pago"),
+      jornalerosConfig.map(nombre=>{
+        const sel=selJ[nombre]!==undefined;
+        return h("div",{key:nombre,style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
+          h("button",{onClick:()=>toggleJ(nombre),
+            style:{flex:1,background:sel?"rgba(80,160,30,0.2)":"rgba(255,255,255,0.04)",
+              border:`2px solid ${sel?"#70c040":"rgba(255,255,255,0.1)"}`,borderRadius:12,
+              color:sel?"#c0f080":"#7a9a68",padding:"13px 14px",fontSize:15,cursor:"pointer",
+              textAlign:"left",fontWeight:sel?700:400}},
+            (sel?"✓ ":"")+nombre
+          ),
+          sel&&h("input",{type:"number",value:selJ[nombre],onChange:e=>setPago(nombre,e.target.value),
+            placeholder:"$",style:{width:88,background:"rgba(255,255,255,0.08)",
+              border:"2px solid rgba(120,200,60,0.3)",borderRadius:9,color:"#e8f8d0",
+              padding:"12px 8px",fontSize:15,outline:"none",textAlign:"center"}})
+        );
+      })
+    ),
+    h(FixBot,null,
+      totalRaya>0&&h("div",{style:{textAlign:"right",fontSize:13,color:"#e8a030",fontWeight:700,marginBottom:8}},"Raya: "+fmtMXN(totalRaya)),
+      h("button",{onClick:()=>setPaso(4),style:C.bigBtn},"Continuar →")
+    )
+  );
+
+  if(paso===4) return h("div",{style:{background:"#0e1a0a",minHeight:"100vh"}},
+    h(Hdr,{titulo:"¿Alguna nota?",sub:"Opcional",onBack:()=>setPaso(3)}),
+    h("div",{style:{padding:"14px 14px 110px"}},
+      h("div",{style:{...C.card,background:"rgba(30,60,15,0.4)",marginBottom:14}},
+        h("div",{style:{fontSize:11,color:"#7ab850",marginBottom:2}},lugarLabel),
+        h("div",{style:{fontSize:13,color:"#a0c870",fontStyle:"italic",marginBottom:6}},actividad),
+        Object.keys(selJ).length>0&&h("div",{style:{fontSize:12,color:"#8aa868"}},
+          Object.entries(selJ).filter(([,v])=>v).map(([n,v])=>n+" "+fmtMXN(Number(v))).join(" · ")
+        ),
+        totalRaya>0&&h("div",{style:{fontSize:13,color:"#e8a030",fontWeight:700,marginTop:4}},"Raya: "+fmtMXN(totalRaya))
+      ),
+      h("textarea",{value:nota,onChange:e=>setNota(e.target.value),rows:4,
+        placeholder:"Ej: Corrida 9319423, faltó Ángel, lluvia en la mañana...",
+        style:{...C.inp,resize:"none",lineHeight:1.5}})
+    ),
+    h(FixBot,null,
+      h("button",{onClick:doSave,style:C.bigBtn},"✓ Guardar actividad")
+    )
+  );
+  return null;
+}
+
+// ── PantallaRegistro ──────────────────────────────────────────────────────────
+function PantallaRegistro({semanaNum,onVerResumen,onConfig}){
+  const [paso,setPaso]=useState(0);
+  const [dia,setDia]=useState(hoy());
+  const [registros,setRegistros]=useState([]);
+  const [editIdx,setEditIdx]=useState(null);
+  const [showForm,setShowForm]=useState(false);
+  const jornalerosConfig=load("jornaleros_config",DEFAULT_JORNALEROS);
+
+  useEffect(()=>{setRegistros(load(`s${semanaNum}_${dia}`,[]));},[ dia,semanaNum]);
+
+  const saveAct=act=>{
+    const list=[...registros];
+    const idx=list.findIndex(r=>r.id===act.id);
+    if(idx>=0)list[idx]=act; else list.push(act);
+    setRegistros(list);
+    save(`s${semanaNum}_${dia}`,list);
+    const lista=load("semanas_lista",[]);
+    if(!lista.includes(semanaNum))save("semanas_lista",[...lista,semanaNum].sort((a,b)=>b-a));
+    setShowForm(false);setEditIdx(null);
+    setPaso(6);
+  };
+  const del=id=>{const l=registros.filter(r=>r.id!==id);setRegistros(l);save(`s${semanaNum}_${dia}`,l);};
+
+  if(showForm) return h(FormActividad,{
+    initial:editIdx!==null?registros[editIdx]:null,
+    onSave:saveAct,
+    onClose:()=>{setShowForm(false);setEditIdx(null);setPaso(paso===6?6:1);},
+    jornalerosConfig,dia
+  });
+
+  // PASO 0: elegir día
+  if(paso===0) return h("div",null,
+    h("div",{style:{...C.hdr,display:"flex",justifyContent:"space-between",alignItems:"center"}},
+      h("div",null,
+        h("div",{style:{fontSize:9,color:"#4a7030",letterSpacing:3}},"SEMANA #"+semanaNum),
+        h("div",{style:{fontSize:21,fontWeight:700,color:"#b8e880"}},"Bitácora del Rancho")
+      ),
+      h("button",{onClick:onConfig,style:{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"#8ab060",padding:"8px 11px",fontSize:17,cursor:"pointer"}},"⚙️")
+    ),
+    h("div",{style:{padding:"16px"}},
+      h("div",{style:{fontSize:12,color:"#5a8040",marginBottom:12}},"¿Qué día vas a registrar?"),
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:14}},
+        DIAS.map(d=>{
+          const has=load(`s${semanaNum}_${d}`,[]).length>0;
+          return h("button",{key:d,onClick:()=>{setDia(d);setRegistros(load(`s${semanaNum}_${d}`,[]));setPaso(1);},
+            style:{...chip(dia===d),padding:"15px 12px",fontSize:15,position:"relative",borderRadius:13}},
+            has&&h("span",{style:{position:"absolute",top:7,right:9,width:8,height:8,background:"#a0e060",borderRadius:"50%"}}),
+            d
+          );
+        })
+      ),
+      h("div",{style:{marginBottom:10}},h(BtnDropbox,{semanaNum})),
+      h("button",{onClick:onVerResumen,style:C.ghost},"📊 Ver resumen de la semana")
+    )
+  );
+
+  // PASO 1: lista del día
+  if(paso===1) return h("div",null,
+    h(Hdr,{titulo:"Registros · "+dia,sub:"Semana #"+semanaNum,onBack:()=>setPaso(0)}),
+    h("div",{style:{padding:"14px 14px 100px"}},
+      registros.length===0
+        ?h("div",{style:{color:"#3a5a28",textAlign:"center",padding:"32px 0"}},"Sin actividades registradas hoy")
+        :registros.map(r=>h("div",{key:r.id,style:C.card},
+            h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
+              h("div",{style:{flex:1}},
+                h("div",{style:{fontSize:12,fontWeight:700,color:"#90c848",marginBottom:3}},r.rancho),
+                h("div",{style:{fontSize:13,color:"#c8e898",marginBottom:4,fontStyle:"italic"}},r.actividad),
+                r.jornaleros&&r.jornaleros.length>0&&h("div",{style:{fontSize:12,color:"#8aa870",marginBottom:r.nota?3:0}},
+                  r.jornaleros.map(j=>j.nombre+(j.pago?` ${fmtMXN(j.pago)}`:"")).join(" · ")
+                ),
+                r.nota&&h("div",{style:{fontSize:11,color:"#5a7040",fontStyle:"italic"}},"* "+r.nota)
+              ),
+              h("div",{style:{display:"flex",gap:4,marginLeft:6}},
+                h("button",{onClick:()=>{setEditIdx(registros.findIndex(x=>x.id===r.id));setShowForm(true);},
+                  style:{background:"none",border:"none",color:"#c8a028",cursor:"pointer",fontSize:16}},"✏️"),
+                h("button",{onClick:()=>del(r.id),
+                  style:{background:"none",border:"none",color:"#d04040",cursor:"pointer",fontSize:16}},"🗑")
+              )
+            )
+          ))
+    ),
+    h(FixBot,null,
+      h("button",{onClick:()=>{setEditIdx(null);setShowForm(true);},style:C.bigBtn},"+ Agregar actividad")
+    )
+  );
+
+  // PASO 6: confirmación
+  if(paso===6) return h("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"60px 22px",textAlign:"center",minHeight:"100vh"}},
+    h("div",{style:{fontSize:64,marginBottom:14}},"✅"),
+    h("div",{style:{fontSize:20,fontWeight:700,color:"#a8e060",marginBottom:6}},"¡Actividad guardada!"),
+    h("div",{style:{fontSize:13,color:"#6a8a50",marginBottom:32}},dia),
+    h("button",{onClick:()=>{setEditIdx(null);setShowForm(true);},style:{...C.bigBtn,marginBottom:10}},"+ Agregar otra actividad"),
+    h("button",{onClick:()=>setPaso(1),style:{...C.ghost,marginBottom:10}},"📋 Ver todas del día"),
+    h("div",{style:{width:"100%",marginBottom:10}},h(BtnDropbox,{semanaNum})),
+    h("button",{onClick:()=>setPaso(0),style:C.ghost},"← Cambiar día")
+  );
+  return null;
+}
+
+// ── PantallaResumen ───────────────────────────────────────────────────────────
+function PantallaResumen({semanaNum,onVolver}){
+  const [verDia,setVerDia]=useState(null);
+  let totalRaya=0,totalActs=0;
+  const porDia=DIAS.map(dia=>{
+    const regs=load(`s${semanaNum}_${dia}`,[]);
+    let raya=0;
+    regs.forEach(r=>{(r.jornaleros||[]).forEach(j=>{raya+=Number(j.pago||0);});});
+    totalRaya+=raya;totalActs+=regs.length;
+    return{dia,regs,raya};
+  }).filter(d=>d.regs.length>0);
+
+  const porRancho={};
+  porDia.forEach(d=>d.regs.forEach(r=>{
+    const key=r.rancho||"";
+    if(!porRancho[key])porRancho[key]={raya:0,acts:new Set()};
+    (r.jornaleros||[]).forEach(j=>{porRancho[key].raya+=Number(j.pago||0);});
+    porRancho[key].acts.add(r.actividad);
+  }));
+
+  return h("div",null,
+    h(Hdr,{titulo:"Semana #"+semanaNum,sub:"Resumen semanal",onBack:onVolver}),
+    h("div",{style:{padding:"14px"}},
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}},
+        [{label:"RAYA TOTAL",val:fmtMXN(totalRaya),color:"#e8a030"},
+         {label:"ACTIVIDADES",val:totalActs,color:"#90c840"}
+        ].map(t=>h("div",{key:t.label,style:{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,padding:"13px",textAlign:"center"}},
+          h("div",{style:{fontSize:20,fontWeight:800,color:t.color}},t.val),
+          h("div",{style:{fontSize:9,color:"#5a7a40",letterSpacing:1.2,marginTop:3}},t.label)
+        ))
+      ),
+      h("div",{style:{marginBottom:14}},h(BtnDropbox,{semanaNum})),
+      Object.keys(porRancho).length>0&&h("div",{style:{marginBottom:14}},
+        h("div",{style:{fontSize:10,color:"#5a7a40",letterSpacing:2,marginBottom:8}},"POR LUGAR"),
+        Object.entries(porRancho).map(([lugar,d])=>h("div",{key:lugar,style:{...C.card,marginBottom:7}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
+            h("div",{style:{flex:1,fontSize:13,fontWeight:700,color:"#90c848"}},lugar),
+            d.raya>0&&h("div",{style:{fontSize:13,fontWeight:700,color:"#e8a030",whiteSpace:"nowrap",marginLeft:8}},fmtMXN(d.raya))
+          ),
+          h("div",{style:{fontSize:11,color:"#6a8a50",marginTop:4}},[...d.acts].join(" · "))
+        ))
+      ),
+      h("div",{style:{fontSize:10,color:"#5a7a40",letterSpacing:2,marginBottom:8}},"POR DÍA"),
+      porDia.length===0
+        ?h("div",{style:{color:"#3a5a28",textAlign:"center",padding:"32px 0"}},"Sin registros esta semana")
+        :porDia.map(d=>h("div",{key:d.dia},
+            h("button",{onClick:()=>setVerDia(verDia===d.dia?null:d.dia),
+              style:{...C.card,width:"100%",textAlign:"left",border:"none",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:verDia===d.dia?2:8}},
+              h("div",null,
+                h("div",{style:{fontSize:14,fontWeight:700,color:"#b0d880",marginBottom:3}},d.dia),
+                h("div",{style:{fontSize:12,color:"#7a9860"}},d.regs.length+" actividad"+(d.regs.length!==1?"es":"")+" · ",
+                  h("span",{style:{color:"#e8a030",fontWeight:700}},fmtMXN(d.raya)))
+              ),
+              h("span",{style:{color:"#5a7a48",fontSize:17}},verDia===d.dia?"▲":"▼")
+            ),
+            verDia===d.dia&&d.regs.map((r,i)=>h("div",{key:i,style:{...C.card,background:"rgba(255,255,255,0.02)",marginBottom:6}},
+              h("div",{style:{fontSize:12,fontWeight:700,color:"#90c848",marginBottom:2}},r.rancho),
+              h("div",{style:{fontSize:12,color:"#c0d888",fontStyle:"italic",marginBottom:3}},r.actividad),
+              r.jornaleros&&r.jornaleros.length>0&&h("div",{style:{fontSize:11,color:"#7a9868",marginBottom:r.nota?2:0}},
+                r.jornaleros.map(j=>j.nombre+(j.pago?` ${fmtMXN(j.pago)}`:"")).join(" · ")
+              ),
+              r.nota&&h("div",{style:{fontSize:11,color:"#5a7040",fontStyle:"italic"}},"* "+r.nota)
+            ))
+          ))
+    )
+  );
+}
+
+// ── PantallaConfig ────────────────────────────────────────────────────────────
+function PantallaConfig({onVolver}){
+  const [list,setList]=useState(()=>load("jornaleros_config",DEFAULT_JORNALEROS));
+  const [nuevo,setNuevo]=useState("");
+  const add=()=>{if(!nuevo.trim())return;const l=[...list,nuevo.trim()];setList(l);save("jornaleros_config",l);setNuevo("");};
+  const del=i=>{const l=list.filter((_,x)=>x!==i);setList(l);save("jornaleros_config",l);};
+  return h("div",null,
+    h(Hdr,{titulo:"⚙️ Jornaleros",sub:"Configuración",onBack:onVolver}),
+    h("div",{style:{padding:"14px"}},
+      h("div",{style:{fontSize:12,color:"#6a8a50",marginBottom:12}},"Administra la lista de jornaleros activos"),
+      list.map((j,i)=>h("div",{key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"13px 14px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:11,marginBottom:8}},
+        h("span",{style:{fontSize:15,color:"#c0d8a0"}},j),
+        h("button",{onClick:()=>del(i),style:{background:"none",border:"none",color:"#905050",cursor:"pointer",fontSize:20}},"×")
+      )),
+      h("div",{style:{display:"flex",gap:9,marginTop:16}},
+        h("input",{value:nuevo,onChange:e=>setNuevo(e.target.value),placeholder:"Nombre del jornalero",
+          style:{...C.inp,flex:1},onKeyDown:e=>e.key==="Enter"&&add()}),
+        h("button",{onClick:add,style:{background:"#2a6a14",border:"none",borderRadius:9,color:"#c8f090",padding:"0 18px",fontSize:20,cursor:"pointer"}},"+")
+      )
+    )
+  );
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+function App(){
+  const [pantalla,setPantalla]=useState("registro");
+  const sNum=semNum();
+  return h("div",{style:{background:"#0e1a0a",minHeight:"100vh",fontFamily:"Georgia,serif",color:"#d8ecc0"}},
+    pantalla==="registro"&&h(PantallaRegistro,{semanaNum:sNum,onVerResumen:()=>setPantalla("resumen"),onConfig:()=>setPantalla("config")}),
+    pantalla==="resumen"&&h(PantallaResumen,{semanaNum:sNum,onVolver:()=>setPantalla("registro")}),
+    pantalla==="config"&&h(PantallaConfig,{onVolver:()=>setPantalla("registro")})
+  );
+}
+ReactDOM.createRoot(document.getElementById("app")).render(h(App,null));
+</script>
+</body>
+</html>
