@@ -22,12 +22,36 @@ const {useState,useEffect,createElement:h} = React;
 // ── Google Sheets ─────────────────────────────────────────────────────────────
 const SHEETS_URL = "https://script.google.com/macros/s/AKfycbyDQAEPlf-By1gL1RhKQkDb5YAeEypB8vMaXupMl2qx2dtQFsG4n9kHrFSWiMCpQw_b/exec";
 
-async function enviarASheets(semanaNum) {
-  const registros = [];
+// Cuenta cuántos registros hay pendientes de enviar (sin la marca "enviado")
+function contarPendientes(semanaNum) {
+  let n = 0;
   DIAS.forEach(dia => {
     const regs = load(`s${semanaNum}_${dia}`, []);
-    regs.forEach(r => registros.push({ ...r, dia }));
+    regs.forEach(r => { if (!r.enviado) n++; });
   });
+  return n;
+}
+
+async function enviarASheets(semanaNum) {
+  // 1. Junta SOLO los registros que aún no se han enviado
+  const registros = [];
+  const indice = []; // { dia, id } para marcar después de enviar
+  DIAS.forEach(dia => {
+    const regs = load(`s${semanaNum}_${dia}`, []);
+    regs.forEach(r => {
+      if (!r.enviado) {
+        registros.push({ ...r, dia });
+        indice.push({ dia, id: r.id });
+      }
+    });
+  });
+
+  // 2. Si no hay nada nuevo, no llama al servidor
+  if (registros.length === 0) {
+    return { enviados: 0 };
+  }
+
+  // 3. Envía solo los nuevos
   const res = await fetch(SHEETS_URL, {
     method: "POST",
     body: JSON.stringify({ semana: semanaNum, registros }),
@@ -35,6 +59,22 @@ async function enviarASheets(semanaNum) {
   if (!res.ok) throw new Error("Error " + res.status);
   const data = await res.json();
   if (data.status !== "ok") throw new Error(data.message || "Error desconocido");
+
+  // 4. Marca los registros como enviados en localStorage
+  const porDia = {};
+  indice.forEach(({ dia, id }) => {
+    if (!porDia[dia]) porDia[dia] = new Set();
+    porDia[dia].add(id);
+  });
+  Object.keys(porDia).forEach(dia => {
+    const regs = load(`s${semanaNum}_${dia}`, []);
+    const actualizados = regs.map(r =>
+      porDia[dia].has(r.id) ? { ...r, enviado: true } : r
+    );
+    save(`s${semanaNum}_${dia}`, actualizados);
+  });
+
+  return { enviados: registros.length };
 }
 
 // ── Catálogos ──────────────────────────────────────────────────────────────
@@ -146,14 +186,26 @@ function FixBot({children}){
 }
 
 // ── Botón Google Sheets ───────────────────────────────────────────────────────
-function BtnSheets({semanaNum}){
+function BtnSheets({semanaNum, refreshKey}){
   const [estado,setEstado] = useState("idle");
+  const [pendientes,setPendientes] = useState(0);
+
+  // Recalcula pendientes cada vez que cambia la semana o se guarda algo
+  useEffect(()=>{
+    setPendientes(contarPendientes(semanaNum));
+  },[semanaNum, refreshKey, estado]);
 
   const enviar = async () => {
+    if (pendientes === 0) {
+      setEstado("nada");
+      setTimeout(()=>setEstado("idle"),2500);
+      return;
+    }
     setEstado("subiendo");
     try {
-      await enviarASheets(semanaNum);
+      const r = await enviarASheets(semanaNum);
       setEstado("ok");
+      setPendientes(0);
       setTimeout(()=>setEstado("idle"),3000);
     } catch(e) {
       console.error(e);
@@ -162,10 +214,15 @@ function BtnSheets({semanaNum}){
     }
   };
 
+  const textoIdle = pendientes > 0
+    ? `Guardar en Google Sheets (${pendientes} nuevo${pendientes!==1?"s":""})`
+    : "Guardar en Google Sheets";
+
   const config = {
-    idle:     {icon:"📊", texto:"Guardar en Google Sheets", bg:"linear-gradient(135deg,#1a73e8,#1557b0)"},
+    idle:     {icon:"📊", texto:textoIdle,                  bg:"linear-gradient(135deg,#1a73e8,#1557b0)"},
     subiendo: {icon:"⏳", texto:"Enviando...",              bg:"linear-gradient(135deg,#555,#333)"},
     ok:       {icon:"✅", texto:"¡Guardado en Sheets!",     bg:"linear-gradient(135deg,#1a7a1a,#155a15)"},
+    nada:     {icon:"✓",  texto:"Sin cambios nuevos",       bg:"linear-gradient(135deg,#3a5a28,#2a4020)"},
     error:    {icon:"❌", texto:"Error — intenta de nuevo", bg:"linear-gradient(135deg,#aa2020,#881515)"},
   };
   const c = config[estado];
@@ -201,9 +258,11 @@ function FormActividad({initial,onSave,onClose,jornalerosConfig,dia}){
   const lugarLabel = getLugarLabel(ranchoId, seccionId);
 
   const doSave=()=>{
+    // IMPORTANTE: si se está editando un registro ya enviado, lo desmarcamos
+    // para que se vuelva a subir con los cambios
     onSave({ranchoId,seccionId,rancho:lugarLabel,actividad,
       jornaleros:Object.entries(selJ).map(([nombre,pago])=>({nombre,pago:Number(pago||0)})),
-      nota, id:initial?.id||Date.now()});
+      nota, id:initial?.id||Date.now(), enviado:false});
   };
 
   if(paso===0) return h("div",{style:{background:"#0e1a0a",minHeight:"100vh"}},
@@ -303,6 +362,7 @@ function PantallaRegistro({semanaNum,onVerResumen,onConfig}){
   const [registros,setRegistros]=useState([]);
   const [editIdx,setEditIdx]=useState(null);
   const [showForm,setShowForm]=useState(false);
+  const [refreshKey,setRefreshKey]=useState(0); // para forzar recálculo de pendientes
   const jornalerosConfig=load("jornaleros_config",DEFAULT_JORNALEROS);
 
   useEffect(()=>{setRegistros(load(`s${semanaNum}_${dia}`,[]));},[ dia,semanaNum]);
@@ -316,9 +376,10 @@ function PantallaRegistro({semanaNum,onVerResumen,onConfig}){
     const lista=load("semanas_lista",[]);
     if(!lista.includes(semanaNum))save("semanas_lista",[...lista,semanaNum].sort((a,b)=>b-a));
     setShowForm(false);setEditIdx(null);
+    setRefreshKey(k=>k+1);
     setPaso(6);
   };
-  const del=id=>{const l=registros.filter(r=>r.id!==id);setRegistros(l);save(`s${semanaNum}_${dia}`,l);};
+  const del=id=>{const l=registros.filter(r=>r.id!==id);setRegistros(l);save(`s${semanaNum}_${dia}`,l);setRefreshKey(k=>k+1);};
 
   if(showForm) return h(FormActividad,{
     initial:editIdx!==null?registros[editIdx]:null,
@@ -347,7 +408,7 @@ function PantallaRegistro({semanaNum,onVerResumen,onConfig}){
           );
         })
       ),
-      h("div",{style:{marginBottom:10}},h(BtnSheets,{semanaNum})),
+      h("div",{style:{marginBottom:10}},h(BtnSheets,{semanaNum,refreshKey})),
       h("button",{onClick:onVerResumen,style:C.ghost},"📊 Ver resumen de la semana")
     )
   );
@@ -360,7 +421,10 @@ function PantallaRegistro({semanaNum,onVerResumen,onConfig}){
         :registros.map(r=>h("div",{key:r.id,style:C.card},
             h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
               h("div",{style:{flex:1}},
-                h("div",{style:{fontSize:12,fontWeight:700,color:"#90c848",marginBottom:3}},r.rancho),
+                h("div",{style:{fontSize:12,fontWeight:700,color:"#90c848",marginBottom:3,display:"flex",alignItems:"center",gap:6}},
+                  r.rancho,
+                  r.enviado&&h("span",{style:{fontSize:10,color:"#5a8a3a",background:"rgba(80,160,30,0.15)",padding:"2px 7px",borderRadius:10,fontWeight:400}},"✓ en Sheets")
+                ),
                 h("div",{style:{fontSize:13,color:"#c8e898",marginBottom:4,fontStyle:"italic"}},r.actividad),
                 r.jornaleros&&r.jornaleros.length>0&&h("div",{style:{fontSize:12,color:"#8aa870",marginBottom:r.nota?3:0}},
                   r.jornaleros.map(j=>j.nombre+(j.pago?` ${fmtMXN(j.pago)}`:"")).join(" · ")
@@ -387,7 +451,7 @@ function PantallaRegistro({semanaNum,onVerResumen,onConfig}){
     h("div",{style:{fontSize:13,color:"#6a8a50",marginBottom:32}},dia),
     h("button",{onClick:()=>{setEditIdx(null);setShowForm(true);},style:{...C.bigBtn,marginBottom:10}},"+ Agregar otra actividad"),
     h("button",{onClick:()=>setPaso(1),style:{...C.ghost,marginBottom:10}},"📋 Ver todas del día"),
-    h("div",{style:{width:"100%",marginBottom:10}},h(BtnSheets,{semanaNum})),
+    h("div",{style:{width:"100%",marginBottom:10}},h(BtnSheets,{semanaNum,refreshKey})),
     h("button",{onClick:()=>setPaso(0),style:C.ghost},"← Cambiar día")
   );
   return null;
