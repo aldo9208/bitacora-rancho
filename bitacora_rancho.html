@@ -133,6 +133,46 @@ const ACTIVIDADES = [
   "Otra"
 ];
 
+// Actividades que requieren capturar productos aplicados (agroquímicos)
+const ACTIVIDADES_CON_APLICACION = [
+  "Fumigar Herbicida c/Bomba Mochila (Tambo 200lt)",
+  "Fumigar Herbicida c/Tractor (Bomba 400lt)",
+  "Foliar c/Moto-Bombas (Tambo 200lt)",
+  "Foliar c/Bomba de Mochila",
+  "Foliar c/Tractor (Bomba 400lt)",
+  "Fertilizar"
+];
+
+// Volumen de mezcla sugerido según equipo (se prellena, editable)
+const VOLUMEN_SUGERIDO = {
+  "Fumigar Herbicida c/Bomba Mochila (Tambo 200lt)": 200,
+  "Fumigar Herbicida c/Tractor (Bomba 400lt)": 400,
+  "Foliar c/Moto-Bombas (Tambo 200lt)": 200,
+  "Foliar c/Bomba de Mochila": 20,
+  "Foliar c/Tractor (Bomba 400lt)": 400,
+  "Fertilizar": 0
+};
+
+// Carga el catálogo de agroquímicos desde el Apps Script y lo cachea localmente
+async function loadCatalogo(forzar=false){
+  const cache = load("catalogo_agroquimicos", null);
+  const cacheTime = load("catalogo_agroquimicos_time", 0);
+  const UNA_HORA = 60*60*1000;
+  if(!forzar && cache && (Date.now()-cacheTime) < UNA_HORA){
+    return cache;
+  }
+  try{
+    const res = await fetch(SHEETS_URL+"?accion=obtener_catalogo", {method:"GET"});
+    const data = await res.json();
+    if(data.ok && Array.isArray(data.productos)){
+      save("catalogo_agroquimicos", data.productos);
+      save("catalogo_agroquimicos_time", Date.now());
+      return data.productos;
+    }
+  }catch(e){ console.error("Error cargando catálogo:", e); }
+  return cache || [];
+}
+
 const DIAS = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
 const DEFAULT_JORNALEROS = [
   "Gonzalo","Macario","Valentín","Raúl","Ángel",
@@ -250,6 +290,25 @@ function FormActividad({initial,onSave,onClose,jornalerosConfig,dia}){
   });
   const [nota,setNota] = useState(initial?.nota||"");
 
+  // Estado nuevo: aplicaciones de agroquímicos (lista de productos aplicados)
+  const [aplicaciones, setAplicaciones] = useState(initial?.aplicaciones || []);
+  const [volumenMezcla, setVolumenMezcla] = useState(initial?.volumen_mezcla || 0);
+  const [plagaObjetivo, setPlagaObjetivo] = useState(initial?.plaga_objetivo || "");
+  const [aplicador, setAplicador] = useState(initial?.aplicador || "");
+  const [clima, setClima] = useState(initial?.clima || "");
+  const [catalogo, setCatalogo] = useState([]);
+  const [cargandoCat, setCargandoCat] = useState(false);
+
+  const requiereAplicacion = ACTIVIDADES_CON_APLICACION.includes(actividad);
+
+  // Carga el catálogo cuando entramos al paso de productos
+  useEffect(()=>{
+    if(paso===25 && catalogo.length===0){
+      setCargandoCat(true);
+      loadCatalogo().then(p=>{ setCatalogo(p); setCargandoCat(false); });
+    }
+  },[paso]);
+
   const ranchoConfig = getRanchoConfig(ranchoId);
   const tieneSecciones = ranchoConfig?.secciones?.length > 0;
   const toggleJ=n=>setSelJ(p=>{if(p[n]!==undefined){const x={...p};delete x[n];return x;}return{...p,[n]:""}; });
@@ -260,13 +319,24 @@ function FormActividad({initial,onSave,onClose,jornalerosConfig,dia}){
   const doSave=()=>{
     // IMPORTANTE: si se está editando un registro ya enviado, lo desmarcamos
     // para que se vuelva a subir con los cambios
-    onSave({ranchoId,seccionId,rancho:lugarLabel,actividad,
+    const registro = {
+      ranchoId, seccionId, rancho:lugarLabel, actividad,
       jornaleros:Object.entries(selJ).map(([nombre,pago])=>({nombre,pago:Number(pago||0)})),
-      nota, id:initial?.id||Date.now(), enviado:false});
+      nota, id:initial?.id||Date.now(), enviado:false
+    };
+    // Si la actividad requiere aplicación, anexamos los datos
+    if(requiereAplicacion && aplicaciones.length>0){
+      registro.aplicaciones = aplicaciones.filter(a => a.id_producto && a.cantidad_aplicada);
+      registro.volumen_mezcla = Number(volumenMezcla)||0;
+      registro.plaga_objetivo = plagaObjetivo;
+      registro.aplicador = aplicador;
+      registro.clima = clima;
+    }
+    onSave(registro);
   };
 
   if(paso===0) return h("div",{style:{background:"#0e1a0a",minHeight:"100vh"}},
-    h(Hdr,{titulo:"¿En qué rancho?",sub:dia,onBack:onClose}),
+    h(Hdr, {titulo:"¿En qué rancho?",sub:dia,onBack:onClose}),
     h("div",{style:{padding:"16px"}},
       RANCHOS_CONFIG.map(r=>h("button",{key:r.id,
         onClick:()=>{setRanchoId(r.id);setSeccionId("");r.secciones.length>0?setPaso(1):setPaso(2);},
@@ -274,7 +344,7 @@ function FormActividad({initial,onSave,onClose,jornalerosConfig,dia}){
         h("div",{style:{fontWeight:700}},r.nombre),
         r.secciones.length>0&&h("div",{style:{fontSize:11,color:"#6a9050",marginTop:3}},
           r.secciones.map(s=>s.nombre+(s.ha?" ("+s.ha+")":"")).join(" · ")
-        )
+       )
       ))
     )
   );
@@ -297,13 +367,111 @@ function FormActividad({initial,onSave,onClose,jornalerosConfig,dia}){
     h(Hdr,{titulo:"¿Qué actividad?",sub:lugarLabel,onBack:()=>tieneSecciones?setPaso(1):setPaso(0)}),
     h("div",{style:{padding:"16px"}},
       ACTIVIDADES.map(a=>h("button",{key:a,
-        onClick:()=>{setActividad(a);setPaso(3);},
+        onClick:()=>{
+          setActividad(a);
+          // Si la actividad requiere registrar productos aplicados, va al paso 25
+          if(ACTIVIDADES_CON_APLICACION.includes(a)){
+            if(!volumenMezcla || volumenMezcla===0) setVolumenMezcla(VOLUMEN_SUGERIDO[a]||0);
+            setPaso(25);
+          } else {
+            setPaso(3);
+          }
+        },
         style:{...chip(actividad===a),marginBottom:8,borderRadius:13}},a))
     )
   );
 
+  // ── PASO 25: Productos aplicados (agroquímicos) ─────────────────────────────
+  if(paso===25){
+    const agregarProducto = () => {
+      setAplicaciones([...aplicaciones, {
+        id_producto:"", nombre_producto:"", cantidad_aplicada:"", unidad:""
+      }]);
+    };
+    const quitarProducto = (i) => {
+      setAplicaciones(aplicaciones.filter((_,idx)=>idx!==i));
+    };
+    const actualizarProducto = (i, campo, valor) => {
+      const nueva = [...aplicaciones];
+      if(campo === "id_producto"){
+        const prod = catalogo.find(p=>p.id===valor);
+        nueva[i] = {
+          ...nueva[i],
+          id_producto: valor,
+          nombre_producto: prod ? prod.nombre_comercial : "",
+          unidad: prod ? prod.unidad_aplicacion : ""
+        };
+      } else {
+        nueva[i][campo] = valor;
+      }
+      setAplicaciones(nueva);
+    };
+    return h("div",{style:{background:"#0e1a0a",minHeight:"100vh"}},
+      h(Hdr,{titulo:"¿Qué productos aplicaste?",sub:actividad.length>32?actividad.slice(0,32)+"...":actividad,onBack:()=>setPaso(2)}),
+      h("div",{style:{padding:"14px 14px 110px"}},
+        h("div",{style:{...C.card,background:"rgba(30,60,15,0.4)",marginBottom:14}},
+          h("div",{style:{fontSize:11,color:"#7ab850",marginBottom:2}},lugarLabel),
+          h("div",{style:{fontSize:13,color:"#a0c870",fontStyle:"italic"}},actividad)
+        ),
+        // Volumen de mezcla
+        h("div",{style:{marginBottom:14}},
+          h("label",{style:lbl},"Volumen de mezcla total (L)"),
+          h("input",{type:"number",value:volumenMezcla,onChange:e=>setVolumenMezcla(e.target.value),
+            placeholder:"Ej: 200",style:C.inp})
+        ),
+        // Lista de productos
+        h("div",{style:{fontSize:11,color:"#5a7a40",marginBottom:8,letterSpacing:1.5}},"PRODUCTOS APLICADOS"),
+        cargandoCat && h("div",{style:{color:"#6a8a50",textAlign:"center",padding:"20px 0",fontSize:13}},"Cargando catálogo..."),
+        !cargandoCat && catalogo.length===0 && h("div",{style:{color:"#a06030",textAlign:"center",padding:"20px 0",fontSize:12,fontStyle:"italic"}},
+          "Sin catálogo disponible. Verifica conexión o configura productos en el Sheet."
+        ),
+        aplicaciones.map((app,i)=>h("div",{key:i,style:{...C.card,marginBottom:10}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
+            h("div",{style:{fontSize:11,color:"#7ab850",letterSpacing:1}},"Producto "+(i+1)),
+            h("button",{onClick:()=>quitarProducto(i),style:{background:"none",border:"none",color:"#d04040",cursor:"pointer",fontSize:18}},"×")
+          ),
+          h("select",{value:app.id_producto,onChange:e=>actualizarProducto(i,"id_producto",e.target.value),
+            style:{...C.inp,marginBottom:8}},
+            h("option",{value:""},"— Selecciona producto —"),
+            catalogo.map(p=>h("option",{key:p.id,value:p.id},p.nombre_comercial))
+          ),
+          h("div",{style:{display:"flex",gap:8}},
+            h("input",{type:"number",step:"0.01",value:app.cantidad_aplicada,
+              onChange:e=>actualizarProducto(i,"cantidad_aplicada",e.target.value),
+              placeholder:"Cantidad",style:{...C.inp,flex:2}}),
+            h("div",{style:{...C.inp,flex:1,textAlign:"center",background:"rgba(80,160,30,0.1)",color:"#90c848"}},app.unidad||"—")
+          )
+        )),
+        h("button",{onClick:agregarProducto,disabled:catalogo.length===0,
+          style:{...C.ghost,marginBottom:16,opacity:catalogo.length===0?0.5:1}},"+ Agregar producto"),
+        // Datos extra
+        h("div",{style:{marginBottom:12}},
+          h("label",{style:lbl},"Plaga / maleza objetivo (opcional)"),
+          h("input",{type:"text",value:plagaObjetivo,onChange:e=>setPlagaObjetivo(e.target.value),
+            placeholder:"Ej: Mosca prieta, malezas de cajete",style:C.inp})
+        ),
+        h("div",{style:{marginBottom:12}},
+          h("label",{style:lbl},"Aplicador (quién lo aplicó)"),
+          h("input",{type:"text",value:aplicador,onChange:e=>setAplicador(e.target.value),
+            placeholder:"Ej: Heriberto",style:C.inp})
+        ),
+        h("div",{style:{marginBottom:12}},
+          h("label",{style:lbl},"Clima al aplicar"),
+          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}},
+            ["☀️ Soleado","☁️ Nublado","🌧️ Lluvia"].map(opt=>h("button",{key:opt,
+              onClick:()=>setClima(opt),
+              style:{...chip(clima===opt),padding:"10px 6px",fontSize:13,borderRadius:10,textAlign:"center"}},opt))
+          )
+        )
+      ),
+      h(FixBot,null,
+        h("button",{onClick:()=>setPaso(3),style:C.bigBtn},"Continuar →")
+      )
+    );
+  }
+
   if(paso===3) return h("div",{style:{background:"#0e1a0a",minHeight:"100vh"}},
-    h(Hdr,{titulo:"¿Quién trabajó?",sub:actividad.length>32?actividad.slice(0,32)+"...":actividad,onBack:()=>setPaso(2)}),
+    h(Hdr,{titulo:"¿Quién trabajó?",sub:actividad.length>32?actividad.slice(0,32)+"...":actividad,onBack:()=>setPaso(requiereAplicacion?25:2)}),
     h("div",{style:{padding:"14px 14px 110px"}},
       h("div",{style:{...C.card,background:"rgba(30,60,15,0.4)",marginBottom:14}},
         h("div",{style:{fontSize:11,color:"#7ab850",marginBottom:2}},lugarLabel),
@@ -339,6 +507,13 @@ function FormActividad({initial,onSave,onClose,jornalerosConfig,dia}){
       h("div",{style:{...C.card,background:"rgba(30,60,15,0.4)",marginBottom:14}},
         h("div",{style:{fontSize:11,color:"#7ab850",marginBottom:2}},lugarLabel),
         h("div",{style:{fontSize:13,color:"#a0c870",fontStyle:"italic",marginBottom:6}},actividad),
+        requiereAplicacion && aplicaciones.length>0 && h("div",{style:{fontSize:12,color:"#9ac868",marginBottom:6,padding:"6px 0",borderTop:"1px solid rgba(120,180,60,0.15)",borderBottom:"1px solid rgba(120,180,60,0.15)"}},
+          h("div",{style:{fontSize:10,color:"#6a9050",letterSpacing:1.5,marginBottom:3}},"PRODUCTOS APLICADOS"),
+          aplicaciones.filter(a=>a.id_producto).map((a,i)=>h("div",{key:i,style:{fontSize:12}},
+            "• "+a.nombre_producto+": "+a.cantidad_aplicada+" "+a.unidad
+          )),
+          volumenMezcla>0 && h("div",{style:{fontSize:11,color:"#7a9858",marginTop:3}},"Mezcla: "+volumenMezcla+" L"+(aplicador?" · Aplicador: "+aplicador:""))
+        ),
         Object.keys(selJ).length>0&&h("div",{style:{fontSize:12,color:"#8aa868"}},
           Object.entries(selJ).filter(([,v])=>v).map(([n,v])=>n+" "+fmtMXN(Number(v))).join(" · ")
         ),
@@ -426,6 +601,9 @@ function PantallaRegistro({semanaNum,onVerResumen,onConfig}){
                   r.enviado&&h("span",{style:{fontSize:10,color:"#5a8a3a",background:"rgba(80,160,30,0.15)",padding:"2px 7px",borderRadius:10,fontWeight:400}},"✓ en Sheets")
                 ),
                 h("div",{style:{fontSize:13,color:"#c8e898",marginBottom:4,fontStyle:"italic"}},r.actividad),
+                r.aplicaciones && r.aplicaciones.length>0 && h("div",{style:{fontSize:11,color:"#9ac868",marginBottom:4,paddingLeft:8,borderLeft:"2px solid rgba(120,180,60,0.3)"}},
+                  r.aplicaciones.map(a=>a.nombre_producto+" "+a.cantidad_aplicada+a.unidad).join(" · ")
+                ),
                 r.jornaleros&&r.jornaleros.length>0&&h("div",{style:{fontSize:12,color:"#8aa870",marginBottom:r.nota?3:0}},
                   r.jornaleros.map(j=>j.nombre+(j.pago?` ${fmtMXN(j.pago)}`:"")).join(" · ")
                 ),
