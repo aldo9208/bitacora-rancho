@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Admin · Bitácora del Rancho</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:#0e1a0a;font-family:Georgia,serif;color:#d8ecc0;min-height:100vh;}
+#app{max-width:1200px;margin:0 auto;min-height:100vh;}
+input,select,textarea,button{font-family:Georgia,serif;}
+select option{background:#1a2e12;}
+table{width:100%;border-collapse:collapse;}
+th{text-align:left;font-size:10px;color:#6a9050;letter-spacing:1.5px;padding:10px 8px;border-bottom:1px solid rgba(120,180,60,0.18);text-transform:uppercase;}
+td{font-size:13px;color:#c8e898;padding:10px 8px;border-bottom:1px solid rgba(255,255,255,0.04);}
+@media (max-width: 700px) {
+  .grid2 { grid-template-columns: 1fr !important; }
+  .grid3 { grid-template-columns: 1fr !important; }
+  .grid4 { grid-template-columns: 1fr 1fr !important; }
+  .pad-main { padding: 14px !important; }
+  .tabs-bar { padding: 0 14px !important; overflow-x: auto; }
+  .tabs-bar button { white-space: nowrap; padding: 12px 12px !important; font-size: 13px !important; }
+  table { font-size: 12px; }
+  td, th { padding: 7px 5px !important; }
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script>
+const {useState,useEffect,createElement:h} = React;
+const SHEETS_URL = "https://script.google.com/macros/s/AKfycbyDQAEPlf-By1gL1RhKQkDb5YAeEypB8vMaXupMl2qx2dtQFsG4n9kHrFSWiMCpQw_b/exec";
+const PASSWORD = "rancho2026";
+
+const fmtMXN = n => "$" + Number(n||0).toLocaleString("es-MX",{maximumFractionDigits:2});
+const fmtNum = n => Number(n||0).toLocaleString("es-MX",{maximumFractionDigits:2});
+function load(k,def){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):def; }catch{ return def; }}
+function save(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{} }
+function fileToBase64(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=rej;r.readAsDataURL(file);});}
+function fmtFecha(v){if(!v)return "—";try{const d=new Date(v);if(isNaN(d.getTime()))return String(v);return d.getDate().toString().padStart(2,'0')+'/'+(d.getMonth()+1).toString().padStart(2,'0')+'/'+d.getFullYear();}catch{return String(v);}}
+
+const C = {
+  hdr:{background:"linear-gradient(135deg,#1a3a0e,#142e0a)",padding:"16px 22px",borderBottom:"1px solid rgba(120,200,60,0.18)"},
+  inp:{width:"100%",background:"rgba(255,255,255,0.07)",border:"1px solid rgba(140,200,80,0.22)",borderRadius:10,color:"#e8f8d0",padding:"12px 13px",fontSize:15,outline:"none",boxSizing:"border-box"},
+  bigBtn:{width:"100%",background:"linear-gradient(135deg,#2a6a14,#1e5010)",border:"none",borderRadius:12,color:"#c8f090",padding:"14px",fontSize:16,fontWeight:700,cursor:"pointer"},
+  card:{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(120,180,60,0.14)",borderRadius:12,padding:"14px 16px",marginBottom:10},
+  stat:{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,padding:"16px",textAlign:"center"},
+  tab:active=>({background:active?"rgba(80,160,30,0.28)":"transparent",border:"none",color:active?"#d8f8a0":"#7a9a68",padding:"12px 18px",fontSize:14,fontWeight:active?700:400,cursor:"pointer",borderBottom:`3px solid ${active?"#70c040":"transparent"}`}),
+  chip:active=>({background:active?"rgba(80,160,30,0.28)":"rgba(255,255,255,0.05)",border:`1px solid ${active?"#70c040":"rgba(255,255,255,0.1)"}`,color:active?"#d8f8a0":"#7a9a68",padding:"6px 12px",fontSize:12,fontWeight:active?700:400,cursor:"pointer",borderRadius:18}),
+};
+const lbl = {fontSize:10,color:"#6a9050",letterSpacing:1.8,textTransform:"uppercase",display:"block",marginBottom:5};
+
+function useFetch(url, deps=[]) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    setLoading(true); setError(null);
+    fetch(url).then(r=>r.json()).then(d=>{setData(d);setLoading(false);}).catch(e=>{setError(e.toString());setLoading(false);});
+  }, deps);
+  return {data, loading, error};
+}
+
+function Login({onOk}) {
+  const [pwd, setPwd] = useState("");
+  const [err, setErr] = useState(false);
+  const intentar = () => { if (pwd === PASSWORD) { save("admin_ok", true); onOk(); } else { setErr(true); setTimeout(() => setErr(false), 2000); } };
+  return h("div", {style:{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",padding:20}},
+    h("div", {style:{maxWidth:380,width:"100%"}},
+      h("div", {style:{textAlign:"center",marginBottom:24}},
+        h("div", {style:{fontSize:48,marginBottom:8}}, "🌱"),
+        h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:2.5}}, "ADMINISTRACIÓN"),
+        h("div", {style:{fontSize:24,fontWeight:700,color:"#b8e870",marginTop:4}}, "Bitácora del Rancho")
+      ),
+      h("div", {style:{...C.card,padding:"22px"}},
+        h("label", {style:lbl}, "Contraseña"),
+        h("input", {type:"password",value:pwd,onChange:e=>setPwd(e.target.value),onKeyDown:e=>e.key==="Enter"&&intentar(),placeholder:"••••••••",autoFocus:true,style:{...C.inp,marginBottom:14,borderColor:err?"rgba(200,80,80,0.5)":undefined}}),
+        err && h("div", {style:{color:"#e08080",fontSize:13,marginBottom:10}}, "Contraseña incorrecta"),
+        h("button", {onClick:intentar,style:C.bigBtn}, "Entrar →")
+      )
+    )
+  );
+}
+
+function TabDashboard() {
+  const {data, loading, error} = useFetch(SHEETS_URL + "?accion=obtener_inventario");
+  const inventario = (data && data.inventario) || [];
+  const totalValor = inventario.reduce((s,p)=>s+Number(p.valor_inventario||0),0);
+  const negativos = inventario.filter(p => Number(p.stock_actual||0) < 0).length;
+  return h("div", null,
+    h("div", {style:{marginBottom:18}},
+      h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:2,marginBottom:4}}, "INVENTARIO"),
+      h("div", {style:{fontSize:22,fontWeight:700,color:"#b8e870"}}, "Agroquímicos")
+    ),
+    h("div", {className:"grid3",style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:18}},
+      h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "PRODUCTOS"), h("div", {style:{fontSize:28,fontWeight:800,color:"#b8e870"}}, inventario.length)),
+      h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "VALOR INVENTARIO"), h("div", {style:{fontSize:22,fontWeight:800,color:"#e8a030"}}, fmtMXN(totalValor))),
+      h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "STOCK NEGATIVO"), h("div", {style:{fontSize:28,fontWeight:800,color:negativos>0?"#e08060":"#90c848"}}, negativos))
+    ),
+    loading && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30}}, "Cargando…"),
+    error && h("div", {style:{color:"#e08060",padding:14,background:"rgba(200,80,60,0.1)",borderRadius:10}}, "Error: " + error),
+    !loading && inventario.length === 0 && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30,fontStyle:"italic"}}, "Sin productos registrados"),
+    !loading && inventario.map((p,i) => h("div", {key:i,style:C.card},
+      h("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}},
+        h("div", null, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.2}}, p.id_producto), h("div", {style:{fontSize:15,fontWeight:700,color:"#c8e898"}}, p.nombre_producto)),
+        Number(p.stock_actual||0) < 0 && h("div", {style:{fontSize:11,color:"#e08060",background:"rgba(200,80,60,0.15)",padding:"3px 9px",borderRadius:10,fontWeight:700}}, "⚠️ NEGATIVO")
+      ),
+      h("div", {className:"grid4",style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10,marginTop:8}},
+        h("div", null, h("div", {style:{fontSize:10,color:"#5a7a40",letterSpacing:1}}, "ENTRADAS"), h("div", {style:{fontSize:14,color:"#90c848"}}, fmtNum(p.entradas_total) + " " + (p.unidad_base||""))),
+        h("div", null, h("div", {style:{fontSize:10,color:"#5a7a40",letterSpacing:1}}, "APLICADO"), h("div", {style:{fontSize:14,color:"#c8a030"}}, fmtNum(p.aplicaciones_total) + " " + (p.unidad_base||""))),
+        h("div", null, h("div", {style:{fontSize:10,color:"#5a7a40",letterSpacing:1}}, "STOCK"), h("div", {style:{fontSize:14,fontWeight:700,color:Number(p.stock_actual)<0?"#e08060":"#b8e870"}}, fmtNum(p.stock_actual) + " " + (p.unidad_base||""))),
+        h("div", null, h("div", {style:{fontSize:10,color:"#5a7a40",letterSpacing:1}}, "VALOR"), h("div", {style:{fontSize:14,color:"#e8a030"}}, fmtMXN(p.valor_inventario)))
+      )
+    ))
+  );
+}
+
+function TabActividades() {
+  const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const ahora = new Date();
+  const [mes, setMes] = useState(MESES[ahora.getMonth()] + " " + ahora.getFullYear());
+  const [filtroRancho, setFiltroRancho] = useState("");
+  const [filtroDia, setFiltroDia] = useState("");
+  const {data, loading, error} = useFetch(SHEETS_URL + "?accion=obtener_actividades&mes=" + encodeURIComponent(mes), [mes]);
+  const actividades = (data && data.actividades) || [];
+  const mesesOpciones = [];
+  for (let i = 0; i < 6; i++) { const d = new Date(ahora.getFullYear(), ahora.getMonth() - i, 1); mesesOpciones.push(MESES[d.getMonth()] + " " + d.getFullYear()); }
+  const ranchos = [...new Set(actividades.map(a => a.Lugar).filter(Boolean))];
+  const dias = [...new Set(actividades.map(a => a.Dia).filter(Boolean))];
+  const filtradas = actividades.filter(a => {
+    if (filtroRancho && a.Lugar !== filtroRancho) return false;
+    if (filtroDia && a.Dia !== filtroDia) return false;
+    return true;
+  });
+  const totalRaya = filtradas.reduce((s,a) => s + Number(a["Raya total"]||0), 0);
+
+  return h("div", null,
+    h("div", {style:{marginBottom:18}},
+      h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:2,marginBottom:4}}, "DEL MES"),
+      h("div", {style:{fontSize:22,fontWeight:700,color:"#b8e870"}}, "Actividades")
+    ),
+    h("div", {style:{marginBottom:14}},
+      h("label", {style:lbl}, "Mes"),
+      h("select", {value:mes,onChange:e=>setMes(e.target.value),style:{...C.inp,maxWidth:280}},
+        mesesOpciones.map(m => h("option", {key:m,value:m}, m))
+      )
+    ),
+    h("div", {className:"grid3",style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:14}},
+      h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "ACTIVIDADES"), h("div", {style:{fontSize:28,fontWeight:800,color:"#b8e870"}}, filtradas.length)),
+      h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "RAYA TOTAL"), h("div", {style:{fontSize:22,fontWeight:800,color:"#e8a030"}}, fmtMXN(totalRaya))),
+      h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "RANCHOS"), h("div", {style:{fontSize:28,fontWeight:800,color:"#90c848"}}, ranchos.length))
+    ),
+    (ranchos.length > 0 || dias.length > 0) && h("div", {style:{marginBottom:14}},
+      h("div", {style:{fontSize:10,color:"#5a7a40",letterSpacing:1.5,marginBottom:6}}, "RANCHO"),
+      h("div", {style:{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}},
+        h("button", {onClick:()=>setFiltroRancho(""),style:C.chip(filtroRancho==="")}, "Todos"),
+        ranchos.map(r => h("button", {key:r,onClick:()=>setFiltroRancho(r),style:C.chip(filtroRancho===r)}, r.length>30?r.substring(0,30)+"…":r))
+      ),
+      h("div", {style:{fontSize:10,color:"#5a7a40",letterSpacing:1.5,marginBottom:6}}, "DÍA"),
+      h("div", {style:{display:"flex",flexWrap:"wrap",gap:6}},
+        h("button", {onClick:()=>setFiltroDia(""),style:C.chip(filtroDia==="")}, "Todos"),
+        dias.map(d => h("button", {key:d,onClick:()=>setFiltroDia(d),style:C.chip(filtroDia===d)}, d))
+      )
+    ),
+    loading && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30}}, "Cargando…"),
+    error && h("div", {style:{color:"#e08060",padding:14,background:"rgba(200,80,60,0.1)",borderRadius:10}}, "Error: " + error),
+    !loading && filtradas.length === 0 && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30,fontStyle:"italic"}}, "Sin actividades en este mes/filtro"),
+    !loading && filtradas.map((a,i) => h("div", {key:i,style:C.card},
+      h("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6,flexWrap:"wrap",gap:6}},
+        h("div", {style:{flex:1,minWidth:0}},
+          h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1,marginBottom:2}}, (a.Semana||"") + " · " + (a.Dia||"")),
+          h("div", {style:{fontSize:14,fontWeight:700,color:"#c8e898"}}, a.Lugar||"—"),
+          h("div", {style:{fontSize:13,color:"#a0c870",fontStyle:"italic",marginTop:2}}, a.Actividad||"")
+        ),
+        h("div", {style:{fontSize:15,fontWeight:700,color:"#e8a030",whiteSpace:"nowrap"}}, fmtMXN(a["Raya total"]))
+      ),
+      a.Jornaleros && h("div", {style:{fontSize:12,color:"#8aa870",marginTop:6,paddingTop:6,borderTop:"1px solid rgba(255,255,255,0.05)"}}, a.Jornaleros),
+      a.Nota && h("div", {style:{fontSize:11,color:"#7a9058",marginTop:4,fontStyle:"italic"}}, "* " + a.Nota)
+    ))
+  );
+}
+
+function TabAplicaciones() {
+  const {data, loading, error} = useFetch(SHEETS_URL + "?accion=obtener_aplicaciones");
+  const aplicaciones = (data && data.aplicaciones) || [];
+  const [filtroProducto, setFiltroProducto] = useState("");
+  const [filtroRancho, setFiltroRancho] = useState("");
+  const productos = [...new Set(aplicaciones.map(a => a.nombre_producto).filter(Boolean))];
+  const ranchos = [...new Set(aplicaciones.map(a => a.rancho).filter(Boolean))];
+  const filtradas = aplicaciones.filter(a => {
+    if (filtroProducto && a.nombre_producto !== filtroProducto) return false;
+    if (filtroRancho && a.rancho !== filtroRancho) return false;
+    return true;
+  });
+  const totalCosto = filtradas.reduce((s,a) => s + Number(a.costo_total||0), 0);
+
+  return h("div", null,
+    h("div", {style:{marginBottom:18}},
+      h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:2,marginBottom:4}}, "BITÁCORA"),
+      h("div", {style:{fontSize:22,fontWeight:700,color:"#b8e870"}}, "Aplicaciones de agroquímicos")
+    ),
+    h("div", {className:"grid3",style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:14}},
+      h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "APLICACIONES"), h("div", {style:{fontSize:28,fontWeight:800,color:"#b8e870"}}, filtradas.length)),
+      h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "COSTO TOTAL"), h("div", {style:{fontSize:22,fontWeight:800,color:"#e8a030"}}, fmtMXN(totalCosto))),
+      h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "PRODUCTOS USADOS"), h("div", {style:{fontSize:28,fontWeight:800,color:"#90c848"}}, productos.length))
+    ),
+    productos.length > 0 && h("div", {style:{marginBottom:14}},
+      h("div", {style:{fontSize:10,color:"#5a7a40",letterSpacing:1.5,marginBottom:6}}, "PRODUCTO"),
+      h("div", {style:{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}},
+        h("button", {onClick:()=>setFiltroProducto(""),style:C.chip(filtroProducto==="")}, "Todos"),
+        productos.map(p => h("button", {key:p,onClick:()=>setFiltroProducto(p),style:C.chip(filtroProducto===p)}, p))
+      ),
+      h("div", {style:{fontSize:10,color:"#5a7a40",letterSpacing:1.5,marginBottom:6}}, "RANCHO"),
+      h("div", {style:{display:"flex",flexWrap:"wrap",gap:6}},
+        h("button", {onClick:()=>setFiltroRancho(""),style:C.chip(filtroRancho==="")}, "Todos"),
+        ranchos.map(r => h("button", {key:r,onClick:()=>setFiltroRancho(r),style:C.chip(filtroRancho===r)}, r.length>30?r.substring(0,30)+"…":r))
+      )
+    ),
+    loading && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30}}, "Cargando…"),
+    error && h("div", {style:{color:"#e08060",padding:14,background:"rgba(200,80,60,0.1)",borderRadius:10}}, "Error: " + error),
+    !loading && filtradas.length === 0 && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30,fontStyle:"italic"}}, "Sin aplicaciones registradas"),
+    !loading && filtradas.map((a,i) => h("div", {key:i,style:C.card},
+      h("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6,flexWrap:"wrap",gap:6}},
+        h("div", {style:{flex:1,minWidth:0}},
+          h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1,marginBottom:2}}, fmtFecha(a.fecha) + " · " + (a.id_aplicacion||"")),
+          h("div", {style:{fontSize:14,fontWeight:700,color:"#c8e898"}}, a.nombre_producto||"—"),
+          h("div", {style:{fontSize:12,color:"#a0c870",marginTop:2}}, a.rancho||"")
+        ),
+        h("div", {style:{textAlign:"right"}},
+          h("div", {style:{fontSize:15,fontWeight:700,color:"#e8a030"}}, fmtNum(a.cantidad_aplicada) + " " + (a.unidad||"")),
+          h("div", {style:{fontSize:12,color:"#c8a030"}}, fmtMXN(a.costo_total))
+        )
+      ),
+      h("div", {style:{fontSize:11,color:"#7a9058",marginTop:6,paddingTop:6,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+        (a.actividad || "") + (a.aplicador ? " · " + a.aplicador : "") + (a.clima ? " · " + a.clima : "") + (a.volumen_mezcla_total ? " · Mezcla " + a.volumen_mezcla_total + "L" : "")
+      ),
+      a.plaga_objetivo && h("div", {style:{fontSize:11,color:"#9a8068",marginTop:3,fontStyle:"italic"}}, "🎯 " + a.plaga_objetivo)
+    ))
+  );
+}
+
+function TabJornaleros() {
+  const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const ahora = new Date();
+  const [mes, setMes] = useState(MESES[ahora.getMonth()] + " " + ahora.getFullYear());
+  const {data, loading, error} = useFetch(SHEETS_URL + "?accion=obtener_resumen_jornaleros&mes=" + encodeURIComponent(mes), [mes]);
+  const jornaleros = (data && data.jornaleros) || [];
+  const semanas = (data && data.semanas) || [];
+  const totalSemana = (data && data.total_semana) || {};
+  const mesesOpciones = [];
+  for (let i = 0; i < 6; i++) { const d = new Date(ahora.getFullYear(), ahora.getMonth() - i, 1); mesesOpciones.push(MESES[d.getMonth()] + " " + d.getFullYear()); }
+  const totalMes = jornaleros.reduce((s,j) => s + Number(j.total||0), 0);
+
+  return h("div", null,
+    h("div", {style:{marginBottom:18}},
+      h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:2,marginBottom:4}}, "RAYA POR SEMANA"),
+      h("div", {style:{fontSize:22,fontWeight:700,color:"#b8e870"}}, "Jornaleros")
+    ),
+    h("div", {style:{marginBottom:14}},
+      h("label", {style:lbl}, "Mes"),
+      h("select", {value:mes,onChange:e=>setMes(e.target.value),style:{...C.inp,maxWidth:280}},
+        mesesOpciones.map(m => h("option", {key:m,value:m}, m))
+      )
+    ),
+    h("div", {className:"grid2",style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}},
+      h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "JORNALEROS ACTIVOS"), h("div", {style:{fontSize:28,fontWeight:800,color:"#b8e870"}}, jornaleros.length)),
+      h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "TOTAL DEL MES"), h("div", {style:{fontSize:22,fontWeight:800,color:"#e8a030"}}, fmtMXN(totalMes)))
+    ),
+    loading && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30}}, "Cargando…"),
+    error && h("div", {style:{color:"#e08060",padding:14,background:"rgba(200,80,60,0.1)",borderRadius:10}}, "Error: " + error),
+    !loading && jornaleros.length === 0 && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30,fontStyle:"italic"}}, "Sin pagos registrados este mes"),
+    !loading && jornaleros.length > 0 && h("div", {style:{...C.card,padding:0,overflowX:"auto"}},
+      h("table", null,
+        h("thead", null,
+          h("tr", null,
+            h("th", null, "Jornalero"),
+            semanas.map(s => h("th", {key:s,style:{textAlign:"right"}}, s)),
+            h("th", {style:{textAlign:"right",color:"#e8a030"}}, "TOTAL")
+          )
+        ),
+        h("tbody", null,
+          jornaleros.map((j,i) => h("tr", {key:i},
+            h("td", {style:{fontWeight:700,color:"#b8e870"}}, j.nombre),
+            semanas.map(s => h("td", {key:s,style:{textAlign:"right",color:Number(j.pagos[s])>0?"#c8e898":"#5a7048"}}, Number(j.pagos[s])>0?fmtMXN(j.pagos[s]):"—")),
+            h("td", {style:{textAlign:"right",color:"#e8a030",fontWeight:700}}, fmtMXN(j.total))
+          )),
+          h("tr", {style:{background:"rgba(80,160,30,0.08)"}},
+            h("td", {style:{fontWeight:700,fontSize:11,letterSpacing:1.5,color:"#7a9a68"}}, "TOTAL SEMANA"),
+            semanas.map(s => h("td", {key:s,style:{textAlign:"right",fontWeight:700,color:"#90c848"}}, fmtMXN(totalSemana[s]||0))),
+            h("td", {style:{textAlign:"right",fontWeight:800,color:"#e8c870"}}, fmtMXN(totalMes))
+          )
+        )
+      )
+    )
+  );
+}
+
+function TabCompras() {
+  const [catalogo, setCatalogo] = useState([]);
+  const [form, setForm] = useState({
+    proveedor:"", folio_factura:"", folio_fiscal:"",
+    fecha: new Date().toISOString().slice(0,10),
+    id_producto:"", nombre_producto:"", unidad_compra:"",
+    cantidad_compra:"", cantidad_total_unidad_base:"",
+    precio_unitario:"", importe:"", iva:"", total:"", notas:"",
+  });
+  const [pdfFile, setPdfFile] = useState(null);
+  const [enviando, setEnviando] = useState(false);
+  const [resultado, setResultado] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetch(SHEETS_URL + "?accion=obtener_catalogo").then(r => r.json()).then(d => { if (d.ok) setCatalogo(d.productos || []); }).catch(()=>{});
+  }, []);
+
+  const onProductoChange = (id) => {
+    const p = catalogo.find(x => x.id === id);
+    setForm(f => ({ ...f, id_producto: id, nombre_producto: p ? p.nombre_comercial : "", unidad_compra: p ? p.unidad_compra : "" }));
+  };
+
+  const recalc = (campo, valor) => {
+    const next = { ...form, [campo]: valor };
+    const cant = parseFloat(next.cantidad_compra) || 0;
+    const precio = parseFloat(next.precio_unitario) || 0;
+    if (campo === "cantidad_compra" || campo === "precio_unitario") {
+      next.importe = (cant * precio).toFixed(2);
+      next.iva = (cant * precio * 0.16).toFixed(2);
+      next.total = (cant * precio * 1.16).toFixed(2);
+    }
+    const p = catalogo.find(x => x.id === next.id_producto);
+    if (p && Number(p.factor_conversion) === 1 && campo === "cantidad_compra") next.cantidad_total_unidad_base = valor;
+    setForm(next);
+  };
+
+  const enviar = async () => {
+    if (!form.id_producto) { setError("Selecciona un producto"); return; }
+    if (!form.cantidad_compra) { setError("Captura la cantidad"); return; }
+    setError(null);
+    setEnviando(true);
+    try {
+      const payload = {
+        accion: "guardar_entrada",
+        proveedor: form.proveedor, folio_factura: form.folio_factura, folio_fiscal: form.folio_fiscal,
+        fecha: form.fecha,
+        id_producto: form.id_producto, nombre_producto: form.nombre_producto,
+        cantidad_compra: form.cantidad_compra, unidad_compra: form.unidad_compra,
+        cantidad_total_unidad_base: form.cantidad_total_unidad_base || form.cantidad_compra,
+        precio_unitario: form.precio_unitario, importe: form.importe, iva: form.iva, total: form.total,
+        capturado_por: "Admin", notas: form.notas,
+      };
+      if (pdfFile) { payload.pdf_base64 = await fileToBase64(pdfFile); payload.pdf_filename = pdfFile.name; }
+      const res = await fetch(SHEETS_URL, { method: "POST", body: JSON.stringify(payload) });
+      const data = await res.json();
+      if (data.ok) {
+        setResultado(data);
+        setForm({
+          proveedor: form.proveedor, folio_factura: form.folio_factura, folio_fiscal: form.folio_fiscal,
+          fecha: form.fecha, id_producto:"", nombre_producto:"", unidad_compra:"",
+          cantidad_compra:"", cantidad_total_unidad_base:"",
+          precio_unitario:"", importe:"", iva:"", total:"", notas:"",
+        });
+        setPdfFile(null);
+      } else { setError(data.error || "Error al guardar"); }
+    } catch (e) { setError(e.toString()); }
+    finally { setEnviando(false); setTimeout(() => setResultado(null), 5000); }
+  };
+
+  return h("div", null,
+    h("div", {style:{marginBottom:18}},
+      h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:2,marginBottom:4}}, "AGROQUÍMICOS"),
+      h("div", {style:{fontSize:22,fontWeight:700,color:"#b8e870"}}, "Capturar compra")
+    ),
+    resultado && h("div", {style:{padding:14,background:"rgba(80,160,30,0.15)",border:"1px solid rgba(120,200,80,0.3)",borderRadius:10,marginBottom:14,color:"#b8e870"}},
+      "✅ Guardado: " + resultado.id_entrada + (resultado.link_factura ? " · PDF subido" : "")
+    ),
+    error && h("div", {style:{padding:14,background:"rgba(200,80,60,0.1)",border:"1px solid rgba(200,80,60,0.3)",borderRadius:10,marginBottom:14,color:"#e08060"}},
+      "⚠️ " + error
+    ),
+    h("div", {style:C.card},
+      h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:1.5,marginBottom:10}}, "DATOS DE LA FACTURA"),
+      h("div", {className:"grid2",style:{display:"grid",gridTemplateColumns:"2fr 1fr",gap:10,marginBottom:10}},
+        h("div", null, h("label", {style:lbl}, "Proveedor"), h("input", {value:form.proveedor,onChange:e=>setForm(f=>({...f,proveedor:e.target.value})),placeholder:"Ej: SERVICIO AGROTECNICO",style:C.inp})),
+        h("div", null, h("label", {style:lbl}, "Fecha"), h("input", {type:"date",value:form.fecha,onChange:e=>setForm(f=>({...f,fecha:e.target.value})),style:C.inp}))
+      ),
+      h("div", {className:"grid2",style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}},
+        h("div", null, h("label", {style:lbl}, "Folio factura"), h("input", {value:form.folio_factura,onChange:e=>setForm(f=>({...f,folio_factura:e.target.value})),placeholder:"Ej: A-1234",style:C.inp})),
+        h("div", null, h("label", {style:lbl}, "Folio fiscal (UUID) — opcional"), h("input", {value:form.folio_fiscal,onChange:e=>setForm(f=>({...f,folio_fiscal:e.target.value})),placeholder:"UUID del CFDI",style:C.inp}))
+      ),
+      h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:1.5,marginBottom:10,paddingTop:6,borderTop:"1px solid rgba(120,180,60,0.15)"}}, "PRODUCTO"),
+      h("div", {style:{marginBottom:10}},
+        h("label", {style:lbl}, "Seleccionar producto del catálogo"),
+        h("select", {value:form.id_producto,onChange:e=>onProductoChange(e.target.value),style:C.inp},
+          h("option", {value:""}, "— Selecciona —"),
+          catalogo.map(p => h("option", {key:p.id,value:p.id}, p.nombre_comercial))
+        )
+      ),
+      h("div", {className:"grid3",style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10}},
+        h("div", null, h("label", {style:lbl}, "Cantidad comprada"), h("input", {type:"number",step:"0.01",value:form.cantidad_compra,onChange:e=>recalc("cantidad_compra",e.target.value),placeholder:"Ej: 4",style:C.inp})),
+        h("div", null, h("label", {style:lbl}, "Unidad"), h("input", {value:form.unidad_compra,readOnly:true,style:{...C.inp,background:"rgba(80,160,30,0.1)",color:"#90c848"}})),
+        h("div", null, h("label", {style:lbl}, "Total en unidad base"), h("input", {type:"number",step:"0.01",value:form.cantidad_total_unidad_base,onChange:e=>setForm(f=>({...f,cantidad_total_unidad_base:e.target.value})),placeholder:"Auto",style:C.inp}))
+      ),
+      h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:1.5,marginBottom:10,paddingTop:6,borderTop:"1px solid rgba(120,180,60,0.15)"}}, "PRECIO E IVA"),
+      h("div", {className:"grid4",style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10,marginBottom:14}},
+        h("div", null, h("label", {style:lbl}, "P. Unitario"), h("input", {type:"number",step:"0.01",value:form.precio_unitario,onChange:e=>recalc("precio_unitario",e.target.value),placeholder:"$",style:C.inp})),
+        h("div", null, h("label", {style:lbl}, "Importe"), h("input", {type:"number",step:"0.01",value:form.importe,onChange:e=>setForm(f=>({...f,importe:e.target.value})),style:{...C.inp,background:"rgba(80,160,30,0.06)"}})),
+        h("div", null, h("label", {style:lbl}, "IVA 16%"), h("input", {type:"number",step:"0.01",value:form.iva,onChange:e=>setForm(f=>({...f,iva:e.target.value})),style:{...C.inp,background:"rgba(80,160,30,0.06)"}})),
+        h("div", null, h("label", {style:lbl}, "TOTAL"), h("input", {type:"number",step:"0.01",value:form.total,onChange:e=>setForm(f=>({...f,total:e.target.value})),style:{...C.inp,background:"rgba(200,160,60,0.1)",color:"#e8c870",fontWeight:700}}))
+      ),
+      h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:1.5,marginBottom:10,paddingTop:6,borderTop:"1px solid rgba(120,180,60,0.15)"}}, "FACTURA PDF (opcional)"),
+      h("div", {style:{marginBottom:14}},
+        h("input", {type:"file",accept:"application/pdf",onChange:e=>setPdfFile(e.target.files[0]||null),style:{...C.inp,padding:"10px",cursor:"pointer"}}),
+        pdfFile && h("div", {style:{fontSize:12,color:"#90c848",marginTop:6}}, "📎 " + pdfFile.name + " (" + (pdfFile.size/1024).toFixed(0) + " KB)")
+      ),
+      h("div", {style:{marginBottom:14}},
+        h("label", {style:lbl}, "Notas (opcional)"),
+        h("textarea", {value:form.notas,onChange:e=>setForm(f=>({...f,notas:e.target.value})),rows:2,placeholder:"Observaciones…",style:{...C.inp,resize:"none",lineHeight:1.5}})
+      ),
+      h("button", {onClick:enviar,disabled:enviando,style:{...C.bigBtn,opacity:enviando?0.6:1,cursor:enviando?"wait":"pointer"}}, enviando ? "⏳ Guardando…" : "💾 Guardar compra")
+    )
+  );
+}
+
+function App() {
+  const [logged, setLogged] = useState(() => load("admin_ok", false));
+  const [tab, setTab] = useState("actividades");
+  if (!logged) return h(Login, {onOk: () => setLogged(true)});
+  const tabs = [
+    {id:"actividades", label:"📋 Actividades"},
+    {id:"jornaleros",  label:"👥 Jornaleros"},
+    {id:"aplicaciones", label:"🧪 Aplicaciones"},
+    {id:"dashboard",   label:"📦 Inventario"},
+    {id:"compras",     label:"🧾 Capturar compra"},
+  ];
+  return h("div", {style:{background:"#0e1a0a",minHeight:"100vh"}},
+    h("div", {style:C.hdr},
+      h("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}},
+        h("div", null,
+          h("div", {style:{fontSize:10,color:"#5a8040",letterSpacing:2.5}}, "ADMINISTRACIÓN"),
+          h("div", {style:{fontSize:20,fontWeight:700,color:"#b8e870",marginTop:2}}, "Bitácora del Rancho")
+        ),
+        h("div", {style:{display:"flex",gap:10,alignItems:"center"}},
+          h("a", {href:"./bitacora_rancho.html",style:{color:"#8ab060",fontSize:13,textDecoration:"none",padding:"6px 10px",border:"1px solid rgba(140,180,80,0.25)",borderRadius:8}}, "← App captura"),
+          h("button", {onClick:()=>{save("admin_ok",false);setLogged(false);},style:{background:"none",border:"1px solid rgba(200,80,80,0.3)",color:"#c08070",fontSize:12,padding:"6px 10px",borderRadius:8,cursor:"pointer"}}, "Salir")
+        )
+      )
+    ),
+    h("div", {className:"tabs-bar",style:{borderBottom:"1px solid rgba(120,180,60,0.14)",padding:"0 22px",display:"flex",gap:4,overflowX:"auto",whiteSpace:"nowrap"}},
+      tabs.map(t => h("button", {key:t.id,onClick:()=>setTab(t.id),style:C.tab(tab===t.id)}, t.label))
+    ),
+    h("div", {className:"pad-main",style:{padding:"22px"}},
+      tab === "actividades" && h(TabActividades),
+      tab === "jornaleros"  && h(TabJornaleros),
+      tab === "aplicaciones"&& h(TabAplicaciones),
+      tab === "dashboard"   && h(TabDashboard),
+      tab === "compras"     && h(TabCompras)
+    )
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("app")).render(h(App,null));
+</script>
+</body>
+</html>
