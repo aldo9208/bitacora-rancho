@@ -184,6 +184,7 @@ const DEFAULT_JORNALEROS = [
 ];
 
 const fmtMXN = n => "$" + Number(n||0).toLocaleString("es-MX");
+const fmtNum = n => Number(n||0).toLocaleString("es-MX",{maximumFractionDigits:2});
 const hoy = () => { const d=new Date(); return DIAS[d.getDay()===0?6:d.getDay()-1]; };
 const semNum = () => { const n=new Date(),s=new Date(n.getFullYear(),0,1); return Math.ceil(((n-s)/86400000+s.getDay()+1)/7); };
 function load(k,def){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):def; }catch{ return def; }}
