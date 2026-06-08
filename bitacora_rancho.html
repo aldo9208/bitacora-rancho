@@ -534,7 +534,7 @@ function FormActividad({initial,onSave,onClose,jornalerosConfig,dia}){
 }
 
 // ── PantallaRegistro ──────────────────────────────────────────────────────────
-function PantallaRegistro({semanaNum,onVerResumen,onConfig}){
+function PantallaRegistro({semanaNum,onVerResumen,onConfig,onCombustible}){
   const [paso,setPaso]=useState(0);
   const [dia,setDia]=useState(hoy());
   const [registros,setRegistros]=useState([]);
@@ -587,7 +587,8 @@ function PantallaRegistro({semanaNum,onVerResumen,onConfig}){
         })
       ),
       h("div",{style:{marginBottom:10}},h(BtnSheets,{semanaNum,refreshKey})),
-      h("button",{onClick:onVerResumen,style:C.ghost},"📊 Ver resumen de la semana")
+      h("button",{onClick:onVerResumen,style:{...C.ghost,marginBottom:10}},"📊 Ver resumen de la semana"),
+      h("button",{onClick:onCombustible,style:{...C.ghost,background:"rgba(120,80,20,0.08)",border:"1px solid rgba(180,120,40,0.18)",color:"#b09060"}},"🛢️ Combustible")
     )
   );
 
@@ -729,14 +730,306 @@ function PantallaConfig({onVolver}){
   );
 }
 
+// ── PantallaCombustible (menú del módulo) ────────────────────────────────────
+function PantallaCombustible({onVolver}){
+  const [pasoComb,setPasoComb]=useState("menu");
+  // menu | cargar | usar | stock
+
+  if(pasoComb==="cargar") return h(FormCargaCombustible,{onVolver:()=>setPasoComb("menu"),onSaved:()=>setPasoComb("stock")});
+  if(pasoComb==="usar") return h(FormConsumoCombustible,{onVolver:()=>setPasoComb("menu"),onSaved:()=>setPasoComb("stock")});
+  if(pasoComb==="stock") return h(PantallaStockCombustible,{onVolver:()=>setPasoComb("menu")});
+
+  return h("div",null,
+    h(Hdr,{titulo:"🛢️ Combustible",sub:"Diesel y gasolina",onBack:onVolver}),
+    h("div",{style:{padding:"16px"}},
+      h("button",{onClick:()=>setPasoComb("cargar"),style:{...C.bigBtn,marginBottom:12,background:"linear-gradient(135deg,#2a6a14,#1e5010)"}},"⛽ Cargar combustible"),
+      h("button",{onClick:()=>setPasoComb("usar"),style:{...C.bigBtn,marginBottom:12,background:"linear-gradient(135deg,#7a5a14,#5a4010)"}},"🚜 Usar combustible"),
+      h("button",{onClick:()=>setPasoComb("stock"),style:{...C.ghost,marginBottom:0,padding:"14px"}},"📊 Ver stock actual")
+    )
+  );
+}
+
+// ── Form: Cargar combustible (entrada a garrafas) ────────────────────────────
+function FormCargaCombustible({onVolver,onSaved}){
+  const [tipo,setTipo]=useState("");
+  const [lugar,setLugar]=useState("");
+  const [litros,setLitros]=useState("");
+  const [total,setTotal]=useState("");
+  const [foto,setFoto]=useState(null);
+  const [notas,setNotas]=useState("");
+  const [enviando,setEnviando]=useState(false);
+  const [error,setError]=useState("");
+
+  const litrosNum = parseFloat(litros)||0;
+  const totalNum = parseFloat(total)||0;
+  const precioL = litrosNum>0 ? (totalNum/litrosNum) : 0;
+
+  const fileToBase64 = file => new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>res(r.result.split(",")[1]);
+    r.onerror=rej;
+    r.readAsDataURL(file);
+  });
+
+  const guardar = async () => {
+    if(!tipo){setError("Selecciona Diesel o Gasolina");return;}
+    if(!litrosNum){setError("Captura los litros");return;}
+    if(!totalNum){setError("Captura el total pagado");return;}
+    setError("");setEnviando(true);
+    try{
+      const payload = {
+        accion:"guardar_carga_combustible",
+        fecha: new Date().toISOString(),
+        tipo,lugar,litros:litrosNum,total:totalNum,
+        capturado_por:"Encargado",notas
+      };
+      if(foto){
+        payload.foto_base64 = await fileToBase64(foto);
+        payload.foto_filename = foto.name;
+      }
+      const res = await fetch(SHEETS_URL,{method:"POST",body:JSON.stringify(payload)});
+      const data = await res.json();
+      if(data.ok){ onSaved(); }
+      else { setError(data.error||"Error al guardar"); }
+    } catch(e){ setError(e.toString()); }
+    finally{ setEnviando(false); }
+  };
+
+  return h("div",null,
+    h(Hdr,{titulo:"⛽ Cargar combustible",sub:"Entrada a garrafa",onBack:onVolver}),
+    h("div",{style:{padding:"14px 14px 110px"}},
+      error && h("div",{style:{padding:12,background:"rgba(200,80,60,0.12)",border:"1px solid rgba(200,80,60,0.3)",borderRadius:10,color:"#e08060",marginBottom:14,fontSize:13}}, "⚠️ "+error),
+      h("div",{style:{marginBottom:14}},
+        h("label",{style:lbl},"Tipo de combustible"),
+        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}},
+          ["Diesel","Gasolina"].map(t=>h("button",{key:t,onClick:()=>setTipo(t),style:{...chip(tipo===t),padding:"15px"}},t))
+        )
+      ),
+      h("div",{style:{marginBottom:14}},
+        h("label",{style:lbl},"Lugar de carga"),
+        h("input",{value:lugar,onChange:e=>setLugar(e.target.value),placeholder:"Ej: Pemex Carretera, Pipa Don Juan",style:C.inp})
+      ),
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}},
+        h("div",null,
+          h("label",{style:lbl},"Litros"),
+          h("input",{type:"number",step:"0.01",value:litros,onChange:e=>setLitros(e.target.value),placeholder:"Ej: 200",style:C.inp})
+        ),
+        h("div",null,
+          h("label",{style:lbl},"Total $"),
+          h("input",{type:"number",step:"0.01",value:total,onChange:e=>setTotal(e.target.value),placeholder:"Ej: 5800",style:C.inp})
+        )
+      ),
+      precioL>0 && h("div",{style:{padding:11,background:"rgba(80,160,30,0.1)",border:"1px solid rgba(120,200,80,0.2)",borderRadius:10,marginBottom:14,textAlign:"center"}},
+        h("span",{style:{fontSize:11,color:"#7a9858"}},"PRECIO POR LITRO: "),
+        h("span",{style:{fontSize:16,fontWeight:700,color:"#e8c870"}},fmtMXN(precioL))
+      ),
+      h("div",{style:{marginBottom:14}},
+        h("label",{style:lbl},"Foto del ticket (opcional)"),
+        h("input",{type:"file",accept:"image/*",capture:"environment",
+          onChange:e=>setFoto(e.target.files[0]||null),
+          style:{...C.inp,padding:"10px",cursor:"pointer"}}),
+        foto && h("div",{style:{fontSize:12,color:"#90c848",marginTop:6}},"📎 "+foto.name+" ("+(foto.size/1024).toFixed(0)+" KB)")
+      ),
+      h("div",{style:{marginBottom:14}},
+        h("label",{style:lbl},"Notas (opcional)"),
+        h("textarea",{value:notas,onChange:e=>setNotas(e.target.value),rows:2,placeholder:"Ej: Cargué para arado de la próxima semana",style:{...C.inp,resize:"none",lineHeight:1.5}})
+      )
+    ),
+    h(FixBot,null,
+      h("button",{onClick:guardar,disabled:enviando,style:{...C.bigBtn,opacity:enviando?0.6:1}}, enviando?"⏳ Guardando...":"💾 Guardar carga")
+    )
+  );
+}
+
+// ── Form: Usar combustible (salida) ──────────────────────────────────────────
+function FormConsumoCombustible({onVolver,onSaved}){
+  const EQUIPOS = ["Tractor","Desbrozadora","Bomba de aspersión","Bomba sistema de riego","Otro"];
+  const [tipo,setTipo]=useState("");
+  const [equipo,setEquipo]=useState("");
+  const [equipoOtro,setEquipoOtro]=useState("");
+  const [litros,setLitros]=useState("");
+  const [actividad,setActividad]=useState("");
+  const [operador,setOperador]=useState("");
+  const [notas,setNotas]=useState("");
+  const [enviando,setEnviando]=useState(false);
+  const [error,setError]=useState("");
+
+  const jornaleros = load("jornaleros_config",DEFAULT_JORNALEROS);
+
+  const guardar = async () => {
+    if(!tipo){setError("Selecciona Diesel o Gasolina");return;}
+    if(!equipo){setError("Selecciona el equipo");return;}
+    if(equipo==="Otro" && !equipoOtro.trim()){setError("Especifica el equipo");return;}
+    if(!parseFloat(litros)){setError("Captura los litros");return;}
+    setError("");setEnviando(true);
+    try{
+      const payload = {
+        accion:"guardar_consumo_combustible",
+        fecha: new Date().toISOString(),
+        tipo,
+        equipo: equipo==="Otro" ? ("Otro: "+equipoOtro.trim()) : equipo,
+        litros: parseFloat(litros),
+        actividad, operador,
+        capturado_por:"Encargado", notas
+      };
+      const res = await fetch(SHEETS_URL,{method:"POST",body:JSON.stringify(payload)});
+      const data = await res.json();
+      if(data.ok){ onSaved(); }
+      else { setError(data.error||"Error al guardar"); }
+    } catch(e){ setError(e.toString()); }
+    finally{ setEnviando(false); }
+  };
+
+  return h("div",null,
+    h(Hdr,{titulo:"🚜 Usar combustible",sub:"Salida de garrafa",onBack:onVolver}),
+    h("div",{style:{padding:"14px 14px 110px"}},
+      error && h("div",{style:{padding:12,background:"rgba(200,80,60,0.12)",border:"1px solid rgba(200,80,60,0.3)",borderRadius:10,color:"#e08060",marginBottom:14,fontSize:13}}, "⚠️ "+error),
+      h("div",{style:{marginBottom:14}},
+        h("label",{style:lbl},"Tipo de combustible"),
+        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}},
+          ["Diesel","Gasolina"].map(t=>h("button",{key:t,onClick:()=>setTipo(t),style:{...chip(tipo===t),padding:"15px"}},t))
+        )
+      ),
+      h("div",{style:{marginBottom:14}},
+        h("label",{style:lbl},"Equipo"),
+        EQUIPOS.map(eq=>h("button",{key:eq,onClick:()=>setEquipo(eq),style:{...chip(equipo===eq),marginBottom:8,borderRadius:13}},eq)),
+        equipo==="Otro" && h("input",{value:equipoOtro,onChange:e=>setEquipoOtro(e.target.value),placeholder:"¿Qué equipo? Ej: Generador, Soldador",style:{...C.inp,marginTop:8}})
+      ),
+      h("div",{style:{marginBottom:14}},
+        h("label",{style:lbl},"Litros usados"),
+        h("input",{type:"number",step:"0.01",value:litros,onChange:e=>setLitros(e.target.value),placeholder:"Ej: 50",style:C.inp})
+      ),
+      h("div",{style:{marginBottom:14}},
+        h("label",{style:lbl},"Actividad (opcional)"),
+        h("select",{value:actividad,onChange:e=>setActividad(e.target.value),style:C.inp},
+          h("option",{value:""},"— Sin asignar —"),
+          ACTIVIDADES.map(a=>h("option",{key:a,value:a},a))
+        )
+      ),
+      h("div",{style:{marginBottom:14}},
+        h("label",{style:lbl},"Operador (opcional)"),
+        h("select",{value:operador,onChange:e=>setOperador(e.target.value),style:C.inp},
+          h("option",{value:""},"— Sin asignar —"),
+          jornaleros.map(j=>h("option",{key:j,value:j},j))
+        )
+      ),
+      h("div",{style:{marginBottom:14}},
+        h("label",{style:lbl},"Notas (opcional)"),
+        h("textarea",{value:notas,onChange:e=>setNotas(e.target.value),rows:2,placeholder:"Ej: Llené el tractor",style:{...C.inp,resize:"none",lineHeight:1.5}})
+      )
+    ),
+    h(FixBot,null,
+      h("button",{onClick:guardar,disabled:enviando,style:{...C.bigBtn,opacity:enviando?0.6:1}}, enviando?"⏳ Guardando...":"💾 Guardar consumo")
+    )
+  );
+}
+
+// ── PantallaStockCombustible ─────────────────────────────────────────────────
+function PantallaStockCombustible({onVolver}){
+  const [stock,setStock] = useState([]);
+  const [cargas,setCargas] = useState([]);
+  const [consumos,setConsumos] = useState([]);
+  const [loading,setLoading] = useState(true);
+  const [error,setError] = useState("");
+
+  useEffect(()=>{
+    setLoading(true);
+    Promise.all([
+      fetch(SHEETS_URL+"?accion=obtener_stock_combustible").then(r=>r.json()),
+      fetch(SHEETS_URL+"?accion=obtener_cargas_combustible").then(r=>r.json()),
+      fetch(SHEETS_URL+"?accion=obtener_consumos_combustible").then(r=>r.json())
+    ]).then(([s,c,k])=>{
+      if(s.ok) setStock(s.stock||[]);
+      if(c.ok) setCargas((c.cargas||[]).slice(0,5));
+      if(k.ok) setConsumos((k.consumos||[]).slice(0,5));
+      setLoading(false);
+    }).catch(e=>{setError(e.toString());setLoading(false);});
+  },[]);
+
+  const fmtFechaCorta = v => {
+    if(!v) return "—";
+    try{
+      const d = new Date(v);
+      if(isNaN(d.getTime())) return String(v);
+      return d.getDate()+"/"+(d.getMonth()+1);
+    }catch{return String(v);}
+  };
+
+  return h("div",null,
+    h(Hdr,{titulo:"📊 Stock de Combustible",sub:"Garrafas en el rancho",onBack:onVolver}),
+    h("div",{style:{padding:"14px"}},
+      loading && h("div",{style:{color:"#6a8a50",textAlign:"center",padding:30}},"Cargando..."),
+      error && h("div",{style:{color:"#e08060",padding:14}}, "Error: "+error),
+      !loading && stock.map((s,i)=>h("div",{key:i,style:{...C.card,padding:"16px"}},
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
+          h("div",null,
+            h("div",{style:{fontSize:11,color:"#6a9050",letterSpacing:1.5}},"COMBUSTIBLE"),
+            h("div",{style:{fontSize:20,fontWeight:700,color:"#c8e898"}},s.tipo)
+          ),
+          h("div",{style:{textAlign:"right"}},
+            h("div",{style:{fontSize:11,color:"#5a7a40"}},"STOCK ACTUAL"),
+            h("div",{style:{fontSize:24,fontWeight:800,color:Number(s.stock_actual)<0?"#e08060":Number(s.stock_actual)<30?"#e8c060":"#90c848"}},fmtNum(s.stock_actual)+" L")
+          )
+        ),
+        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+          h("div",null,
+            h("div",{style:{fontSize:10,color:"#5a7a40",letterSpacing:1}},"CARGADO"),
+            h("div",{style:{fontSize:13,color:"#90c848"}},fmtNum(s.litros_cargados)+" L")
+          ),
+          h("div",null,
+            h("div",{style:{fontSize:10,color:"#5a7a40",letterSpacing:1}},"CONSUMIDO"),
+            h("div",{style:{fontSize:13,color:"#c8a030"}},fmtNum(s.litros_consumidos)+" L")
+          ),
+          h("div",null,
+            h("div",{style:{fontSize:10,color:"#5a7a40",letterSpacing:1}},"GASTO"),
+            h("div",{style:{fontSize:13,color:"#e8a030"}},fmtMXN(s.gasto_total))
+          )
+        )
+      )),
+      !loading && cargas.length>0 && h("div",{style:{marginTop:18}},
+        h("div",{style:{fontSize:10,color:"#5a7a40",letterSpacing:2,marginBottom:8}},"ÚLTIMAS CARGAS"),
+        cargas.map((c,i)=>h("div",{key:i,style:{...C.card,padding:"10px 14px"}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+            h("div",null,
+              h("div",{style:{fontSize:11,color:"#6a9050"}}, fmtFechaCorta(c.fecha)+" · "+c.tipo),
+              h("div",{style:{fontSize:13,color:"#c8e898"}}, c.lugar||"—")
+            ),
+            h("div",{style:{textAlign:"right"}},
+              h("div",{style:{fontSize:13,fontWeight:700,color:"#90c848"}},fmtNum(c.litros)+" L"),
+              h("div",{style:{fontSize:11,color:"#e8a030"}},fmtMXN(c.total))
+            )
+          )
+        ))
+      ),
+      !loading && consumos.length>0 && h("div",{style:{marginTop:18}},
+        h("div",{style:{fontSize:10,color:"#5a7a40",letterSpacing:2,marginBottom:8}},"ÚLTIMOS CONSUMOS"),
+        consumos.map((k,i)=>h("div",{key:i,style:{...C.card,padding:"10px 14px"}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+            h("div",null,
+              h("div",{style:{fontSize:11,color:"#6a9050"}}, fmtFechaCorta(k.fecha)+" · "+k.tipo),
+              h("div",{style:{fontSize:13,color:"#c8e898"}}, k.equipo||"—"),
+              k.actividad && h("div",{style:{fontSize:11,color:"#8aa870",fontStyle:"italic"}}, k.actividad)
+            ),
+            h("div",{style:{textAlign:"right"}},
+              h("div",{style:{fontSize:13,fontWeight:700,color:"#c8a030"}},fmtNum(k.litros)+" L"),
+              k.operador && h("div",{style:{fontSize:11,color:"#8aa870"}}, k.operador)
+            )
+          )
+        ))
+      )
+    )
+  );
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 function App(){
   const [pantalla,setPantalla]=useState("registro");
   const sNum=semNum();
   return h("div",{style:{background:"#0e1a0a",minHeight:"100vh",fontFamily:"Georgia,serif",color:"#d8ecc0"}},
-    pantalla==="registro"&&h(PantallaRegistro,{semanaNum:sNum,onVerResumen:()=>setPantalla("resumen"),onConfig:()=>setPantalla("config")}),
+    pantalla==="registro"&&h(PantallaRegistro,{semanaNum:sNum,onVerResumen:()=>setPantalla("resumen"),onConfig:()=>setPantalla("config"),onCombustible:()=>setPantalla("combustible")}),
     pantalla==="resumen"&&h(PantallaResumen,{semanaNum:sNum,onVolver:()=>setPantalla("registro")}),
-    pantalla==="config"&&h(PantallaConfig,{onVolver:()=>setPantalla("registro")})
+    pantalla==="config"&&h(PantallaConfig,{onVolver:()=>setPantalla("registro")}),
+    pantalla==="combustible"&&h(PantallaCombustible,{onVolver:()=>setPantalla("registro")})
   );
 }
 ReactDOM.createRoot(document.getElementById("app")).render(h(App,null));
