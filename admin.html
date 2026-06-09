@@ -529,6 +529,61 @@ function FormContabilizar({carga, onCancel, onSaved}) {
   });
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState("");
+  const [procesandoFactura, setProcesandoFactura] = useState(false);
+
+  // Procesar factura subida (XML o PDF) con Gemini/parser
+  const procesarFactura = async (file) => {
+    if (!file) return;
+    setError(""); setProcesandoFactura(true);
+    try {
+      // Leer como base64
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(",")[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const isXML = file.name.toLowerCase().endsWith(".xml");
+      const accion = isXML ? "procesar_xml" : "procesar_pdf";
+      const payload = isXML
+        ? { accion: "procesar_xml", xml_base64: base64 }
+        : { accion: "procesar_pdf", pdf_base64: base64 };
+
+      const res = await fetch(SHEETS_URL, { method: "POST", body: JSON.stringify(payload) });
+      const data = await res.json();
+
+      if (!data.ok) {
+        setError(data.error || "Error procesando factura");
+        return;
+      }
+      const d = data.datos;
+      // Calcular IVA si no viene explícito: subtotal - IEPS = parte gravable, IVA = total - subtotal
+      let subtotal = Number(d.subtotal) || 0;
+      let total = Number(d.total) || 0;
+      // Gemini puede no devolver IEPS/IVA separados. Estimación: si total > subtotal, la diferencia es impuestos
+      let iva = 0, ieps = 0;
+      if (total > subtotal) {
+        // Asume todo impuestos = IVA (sin IEPS), el usuario lo ajusta
+        iva = (total - subtotal);
+      }
+      setForm(f => ({
+        ...f,
+        proveedor: d.proveedor || f.proveedor,
+        rfc_emisor: d.rfc_emisor || f.rfc_emisor,
+        folio_factura: d.folio_factura || f.folio_factura,
+        folio_fiscal: d.folio_fiscal || f.folio_fiscal,
+        fecha_factura: d.fecha ? d.fecha.substring(0, 10) : f.fecha_factura,
+        subtotal: subtotal > 0 ? subtotal.toFixed(2) : f.subtotal,
+        iva: iva > 0 ? iva.toFixed(2) : f.iva,
+        total_factura: total > 0 ? total.toFixed(2) : f.total_factura,
+      }));
+    } catch (e) {
+      setError("Error al procesar: " + e.toString());
+    } finally {
+      setProcesandoFactura(false);
+    }
+  };
 
   // Auto-cálculo cuando el usuario solo captura subtotal + ieps
   const autoCalcular = () => {
@@ -611,6 +666,23 @@ function FormContabilizar({carga, onCancel, onSaved}) {
     // Datos fiscales
     h("div", {style:C.card},
       h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:1.5,marginBottom:10}}, "DATOS DE LA FACTURA"),
+      // Botón para subir factura XML o PDF y procesarla con Gemini
+      h("div", {style:{padding:12,marginBottom:12,background:"rgba(80,120,200,0.06)",border:"1px dashed rgba(120,180,240,0.3)",borderRadius:10}},
+        h("div", {style:{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}},
+          h("div", {style:{fontSize:12,color:"#8ab0e0",flex:1,minWidth:180}},
+            "📄 Sube la factura para auto-llenar los datos"),
+          h("label", {style:{background:"linear-gradient(135deg,#3a5ea8,#2a4080)",border:"none",borderRadius:8,
+                             color:"#d8e8ff",padding:"8px 14px",fontSize:12,fontWeight:700,
+                             cursor:procesandoFactura?"not-allowed":"pointer",opacity:procesandoFactura?0.6:1}},
+            procesandoFactura ? "⏳ Procesando..." : "Elegir archivo (XML o PDF)",
+            h("input", {type:"file",accept:".xml,.pdf,application/xml,text/xml,application/pdf",
+                       style:{display:"none"},disabled:procesandoFactura,
+                       onChange:e => { if (e.target.files[0]) procesarFactura(e.target.files[0]); }})
+          )
+        ),
+        h("div", {style:{fontSize:10,color:"#6a8ab0",marginTop:6,fontStyle:"italic"}},
+          "XML → datos exactos del SAT · PDF → lectura automática con IA (revisa los datos)")
+      ),
       h("div", {className:"grid2",style:{display:"grid",gridTemplateColumns:"2fr 1fr",gap:10,marginBottom:10}},
         h("div", null,
           h("label", {style:lbl}, "Proveedor"),
