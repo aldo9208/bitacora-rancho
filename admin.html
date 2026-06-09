@@ -310,6 +310,13 @@ function TabCompras() {
   const [enviando, setEnviando] = useState(false);
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState(null);
+  const [facturaFile, setFacturaFile] = useState(null);
+  const [parseando, setParseando] = useState(false);
+  const [lineasRev, setLineasRev] = useState(null);
+  const [headerRev, setHeaderRev] = useState(null);
+  const [confirmando, setConfirmando] = useState(false);
+  const [resAuto, setResAuto] = useState(null);
+  const [errAuto, setErrAuto] = useState(null);
 
   useEffect(() => {
     fetch(SHEETS_URL + "?accion=obtener_catalogo").then(r => r.json()).then(d => { if (d.ok) setCatalogo(d.productos || []); }).catch(()=>{});
@@ -367,10 +374,120 @@ function TabCompras() {
     finally { setEnviando(false); setTimeout(() => setResultado(null), 5000); }
   };
 
+  const leerFactura = async () => {
+    if (!facturaFile) { setErrAuto("Selecciona el XML o PDF de la factura"); return; }
+    setErrAuto(null); setResAuto(null); setParseando(true);
+    try {
+      const esXml = /\.xml$/i.test(facturaFile.name);
+      const b64 = await fileToBase64(facturaFile);
+      const payload = esXml
+        ? { accion: "procesar_factura_agro", xml_base64: b64 }
+        : { accion: "procesar_factura_agro_pdf", pdf_base64: b64 };
+      const res = await fetch(SHEETS_URL, { method: "POST", body: JSON.stringify(payload) });
+      const d = await res.json();
+      if (!d.ok) { setErrAuto(d.error || "No se pudo leer la factura"); setParseando(false); return; }
+      setHeaderRev(d.header || {});
+      setLineasRev((d.lineas || []).map(l => ({
+        descripcion: l.descripcion,
+        match_id: l.match_id, match_nombre: l.match_nombre, match_score: l.match_score,
+        modo: l.match_id ? l.match_id : "__NUEVO__",
+        nombre_producto: l.match_id ? l.match_nombre : l.descripcion,
+        unidad_compra: l.unidad || "L",
+        cantidad_compra: l.cantidad,
+        cantidad_total_unidad_base: l.cantidad,
+        precio_unitario: l.valor_unitario,
+        importe: l.importe, iva: l.iva || 0, ieps: l.ieps || 0
+      })));
+    } catch (e) { setErrAuto(e.toString()); }
+    finally { setParseando(false); }
+  };
+
+  const setLineaRev = (i, patch) => setLineasRev(prev => prev.map((l,idx) => idx===i ? {...l, ...patch} : l));
+
+  const confirmarAuto = async () => {
+    if (!lineasRev || lineasRev.length === 0) return;
+    setErrAuto(null); setConfirmando(true);
+    try {
+      const lineas = lineasRev.map(l => {
+        const esNuevo = l.modo === "__NUEVO__";
+        const cat = catalogo.find(x => x.id === l.modo);
+        return {
+          nuevo: esNuevo,
+          id_producto: esNuevo ? "" : l.modo,
+          nombre_producto: esNuevo ? l.nombre_producto : (cat ? cat.nombre_comercial : l.nombre_producto),
+          unidad_compra: esNuevo ? l.unidad_compra : (cat ? cat.unidad_compra : l.unidad_compra),
+          unidad_aplicacion: esNuevo ? l.unidad_compra : (cat ? cat.unidad_aplicacion : l.unidad_compra),
+          factor_conversion: 1,
+          cantidad_compra: l.cantidad_compra,
+          cantidad_total_unidad_base: l.cantidad_total_unidad_base || l.cantidad_compra,
+          precio_unitario: l.precio_unitario,
+          importe: l.importe, iva: l.iva, total: (parseFloat(l.importe)||0)+(parseFloat(l.iva)||0)
+        };
+      });
+      const payload = {
+        accion: "confirmar_entradas_agro",
+        proveedor: (headerRev && headerRev.proveedor) || form.proveedor || "",
+        folio_factura: (headerRev && headerRev.folio_factura) || form.folio_factura || "",
+        folio_fiscal: (headerRev && headerRev.folio_fiscal) || form.folio_fiscal || "",
+        fecha: (headerRev && headerRev.fecha) || form.fecha,
+        capturado_por: "Admin",
+        lineas: lineas
+      };
+      if (facturaFile && /\.pdf$/i.test(facturaFile.name)) { payload.pdf_base64 = await fileToBase64(facturaFile); payload.pdf_filename = facturaFile.name; }
+      const res = await fetch(SHEETS_URL, { method: "POST", body: JSON.stringify(payload) });
+      const d = await res.json();
+      if (d.ok) {
+        setResAuto(d);
+        setLineasRev(null); setHeaderRev(null); setFacturaFile(null);
+        fetch(SHEETS_URL + "?accion=obtener_catalogo").then(r=>r.json()).then(dd=>{ if(dd.ok) setCatalogo(dd.productos||[]); }).catch(()=>{});
+      } else { setErrAuto(d.error || "Error al confirmar"); }
+    } catch (e) { setErrAuto(e.toString()); }
+    finally { setConfirmando(false); }
+  };
+
   return h("div", null,
     h("div", {style:{marginBottom:18}},
       h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:2,marginBottom:4}}, "AGROQUÍMICOS"),
       h("div", {style:{fontSize:22,fontWeight:700,color:"#b8e870"}}, "Capturar compra")
+    ),
+    h("div", {style:{...C.card, marginBottom:16, border:"1px solid rgba(120,200,80,0.3)"}},
+      h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:1.5,marginBottom:10}}, "⚡ CARGA AUTOMÁTICA DESDE FACTURA (XML o PDF)"),
+      resAuto && h("div", {style:{padding:12,background:"rgba(80,160,30,0.15)",border:"1px solid rgba(120,200,80,0.3)",borderRadius:9,marginBottom:12,color:"#b8e870",fontSize:13}},
+        "✅ " + resAuto.entradas + " producto(s) agregados a inventario" + (resAuto.creados_catalogo && resAuto.creados_catalogo.length ? " · " + resAuto.creados_catalogo.length + " nuevo(s) en catálogo (" + resAuto.creados_catalogo.map(c=>c.id).join(", ") + ")" : "")),
+      errAuto && h("div", {style:{padding:12,background:"rgba(200,80,60,0.1)",border:"1px solid rgba(200,80,60,0.3)",borderRadius:9,marginBottom:12,color:"#e08060",fontSize:13}}, "⚠️ " + errAuto),
+      !lineasRev && h("div", null,
+        h("input", {type:"file",accept:".xml,application/pdf,text/xml",onChange:e=>setFacturaFile(e.target.files[0]||null),style:{...C.inp,padding:"10px",cursor:"pointer"}}),
+        facturaFile && h("div", {style:{fontSize:12,color:"#90c848",margin:"6px 0"}}, "📎 " + facturaFile.name),
+        h("div", {style:{fontSize:11,color:"#6a8a50",marginTop:6}}, "El XML es más preciso; el PDF se lee con IA."),
+        h("button", {onClick:leerFactura,disabled:parseando||!facturaFile,style:{...C.bigBtn,marginTop:10,opacity:(parseando||!facturaFile)?0.6:1,cursor:parseando?"wait":"pointer"}}, parseando ? "⏳ Leyendo factura…" : "🔍 Leer factura")
+      ),
+      lineasRev && h("div", null,
+        headerRev && h("div", {style:{fontSize:13,color:"#c8e898",marginBottom:12,paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.06)"}},
+          (headerRev.proveedor||"—") + " · " + (headerRev.folio_factura||"") + " · " + (headerRev.fecha||"") + " · Total $" + (Number(headerRev.total)||0).toLocaleString("es-MX",{minimumFractionDigits:2})),
+        lineasRev.map((l,i) => h("div", {key:i, style:{padding:10,marginBottom:8,background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:9}},
+          h("div", {style:{display:"flex",justifyContent:"space-between",gap:8,marginBottom:8}},
+            h("div", {style:{fontSize:13,color:"#d8f0b0",fontWeight:600}}, l.descripcion),
+            h("div", {style:{fontSize:13,color:"#e8a030",fontWeight:700,whiteSpace:"nowrap"}}, "$" + (Number(l.importe)||0).toLocaleString("es-MX",{minimumFractionDigits:2}))
+          ),
+          h("div", {style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
+            h("span", {style:{fontSize:11,color:l.modo==="__NUEVO__"?"#e8a030":"#90c848",whiteSpace:"nowrap"}}, l.modo==="__NUEVO__" ? "➕ Nuevo:" : "✓ Catálogo:"),
+            h("select", {value:l.modo,onChange:e=>setLineaRev(i,{modo:e.target.value}),style:{...C.inp,flex:1,padding:"6px 10px",fontSize:13,border:l.modo==="__NUEVO__"?"1px solid rgba(240,180,80,0.5)":"1px solid rgba(120,200,80,0.4)"}},
+              h("option", {value:"__NUEVO__"}, "➕ Crear producto nuevo"),
+              catalogo.map(p => h("option", {key:p.id,value:p.id}, p.nombre_comercial))
+            )
+          ),
+          l.modo==="__NUEVO__" && h("input", {value:l.nombre_producto,onChange:e=>setLineaRev(i,{nombre_producto:e.target.value}),placeholder:"Nombre para el catálogo",style:{...C.inp,marginBottom:8,fontSize:13}}),
+          h("div", {style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}},
+            h("div", null, h("label", {style:{...lbl,fontSize:10}}, "Cantidad"), h("input", {type:"number",step:"0.01",value:l.cantidad_compra,onChange:e=>setLineaRev(i,{cantidad_compra:e.target.value}),style:{...C.inp,padding:"6px 8px",fontSize:13}})),
+            h("div", null, h("label", {style:{...lbl,fontSize:10}}, "Unidad"), h("input", {value:l.unidad_compra,onChange:e=>setLineaRev(i,{unidad_compra:e.target.value}),style:{...C.inp,padding:"6px 8px",fontSize:13}})),
+            h("div", null, h("label", {style:{...lbl,fontSize:10}}, "Total u. base"), h("input", {type:"number",step:"0.01",value:l.cantidad_total_unidad_base,onChange:e=>setLineaRev(i,{cantidad_total_unidad_base:e.target.value}),style:{...C.inp,padding:"6px 8px",fontSize:13}}))
+          )
+        )),
+        h("div", {style:{display:"flex",gap:10,marginTop:6}},
+          h("button", {onClick:()=>{setLineasRev(null);setHeaderRev(null);},style:{...C.inp,flex:"0 0 auto",padding:"12px 16px",cursor:"pointer",color:"#9ab080",background:"transparent",width:"auto"}}, "Cancelar"),
+          h("button", {onClick:confirmarAuto,disabled:confirmando,style:{...C.bigBtn,flex:1,opacity:confirmando?0.6:1,cursor:confirmando?"wait":"pointer"}}, confirmando ? "⏳ Agregando…" : "✅ Confirmar y agregar a inventario")
+        )
+      )
     ),
     resultado && h("div", {style:{padding:14,background:"rgba(80,160,30,0.15)",border:"1px solid rgba(120,200,80,0.3)",borderRadius:10,marginBottom:14,color:"#b8e870"}},
       "✅ Guardado: " + resultado.id_entrada + (resultado.link_factura ? " · PDF subido" : "")
