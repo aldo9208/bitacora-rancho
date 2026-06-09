@@ -671,15 +671,23 @@ function FormContabilizarConXML({datos, busqueda, fileName, onCancel, onSaved}) 
         h("label", {style:lbl}, "UUID (folio fiscal)"),
         h("div", {style:{fontSize:11,color:"#a0c870",fontFamily:"monospace",wordBreak:"break-all"}}, datos.folio_fiscal)
       ),
+      // Aviso si el IEPS fue calculado implícitamente
+      datos.ieps_calculado_implicito && h("div", {style:{padding:10,marginBottom:10,background:"rgba(80,140,200,0.1)",border:"1px solid rgba(120,180,240,0.3)",borderRadius:9,fontSize:11,color:"#a0c8f0"}},
+        "💡 ", h("strong", null, "IEPS calculado automáticamente"), " — el XML no lo trajo desglosado.",
+        h("br"),
+        "Subtotal XML original: ", h("strong", null, fmtMXN(Number(datos.subtotal_xml)||0)),
+        " · Base gravable real (IVA÷0.16): ", h("strong", null, fmtMXN(Number(datos.subtotal)||0)),
+        " · IEPS = $", h("strong", null, fmtMXN(Number(datos.ieps)||0))
+      ),
       // Desglose monetario
       h("div", {style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10,padding:12,background:"rgba(50,80,30,0.2)",borderRadius:9}},
         h("div", null,
-          h("div", {style:{fontSize:10,color:"#7a9050",letterSpacing:1,marginBottom:2}}, "Subtotal"),
+          h("div", {style:{fontSize:10,color:"#7a9050",letterSpacing:1,marginBottom:2}}, "Subtotal gravable"),
           h("div", {style:{fontSize:14,fontWeight:600,color:"#c8e898"}}, fmtMXN(Number(datos.subtotal)||0))
         ),
         h("div", null,
-          h("div", {style:{fontSize:10,color:"#7a9050",letterSpacing:1,marginBottom:2}}, "IEPS"),
-          h("div", {style:{fontSize:14,fontWeight:600,color:"#c8e898"}}, fmtMXN(Number(datos.ieps)||0))
+          h("div", {style:{fontSize:10,color:"#7a9050",letterSpacing:1,marginBottom:2}}, "IEPS" + (datos.ieps_calculado_implicito ? " 🧮" : "")),
+          h("div", {style:{fontSize:14,fontWeight:600,color:datos.ieps_calculado_implicito?"#8ab0e0":"#c8e898"}}, fmtMXN(Number(datos.ieps)||0))
         ),
         h("div", null,
           h("div", {style:{fontSize:10,color:"#7a9050",letterSpacing:1,marginBottom:2}}, "IVA"),
@@ -790,15 +798,8 @@ function FormContabilizar({carga, onCancel, onSaved}) {
         return;
       }
       const d = data.datos;
-      // Calcular IVA si no viene explícito: subtotal - IEPS = parte gravable, IVA = total - subtotal
-      let subtotal = Number(d.subtotal) || 0;
-      let total = Number(d.total) || 0;
-      // Gemini puede no devolver IEPS/IVA separados. Estimación: si total > subtotal, la diferencia es impuestos
-      let iva = 0, ieps = 0;
-      if (total > subtotal) {
-        // Asume todo impuestos = IVA (sin IEPS), el usuario lo ajusta
-        iva = (total - subtotal);
-      }
+      // El backend ya calcula IEPS implícito si no viene desglosado.
+      // d.subtotal y d.ieps ya están corregidos (base gravable real + IEPS calculado)
       setForm(f => ({
         ...f,
         proveedor: d.proveedor || f.proveedor,
@@ -806,10 +807,21 @@ function FormContabilizar({carga, onCancel, onSaved}) {
         folio_factura: d.folio_factura || f.folio_factura,
         folio_fiscal: d.folio_fiscal || f.folio_fiscal,
         fecha_factura: d.fecha ? d.fecha.substring(0, 10) : f.fecha_factura,
-        subtotal: subtotal > 0 ? subtotal.toFixed(2) : f.subtotal,
-        iva: iva > 0 ? iva.toFixed(2) : f.iva,
-        total_factura: total > 0 ? total.toFixed(2) : f.total_factura,
+        subtotal: d.subtotal > 0 ? Number(d.subtotal).toFixed(2) : f.subtotal,
+        ieps: d.ieps > 0 ? Number(d.ieps).toFixed(2) : f.ieps,
+        iva: d.iva > 0 ? Number(d.iva).toFixed(2) : f.iva,
+        total_factura: d.total > 0 ? Number(d.total).toFixed(2) : f.total_factura,
       }));
+      if (d.ieps_calculado_implicito) {
+        // Mensaje informativo al usuario
+        setTimeout(() => {
+          alert("ℹ️ El XML no traía el IEPS desglosado. Se calculó automáticamente:\n\n" +
+                "Subtotal XML original: $" + Number(d.subtotal_xml).toFixed(2) + "\n" +
+                "Base gravable real (IVA÷0.16): $" + Number(d.subtotal).toFixed(2) + "\n" +
+                "IEPS calculado: $" + Number(d.ieps).toFixed(2) + "\n\n" +
+                "Verifica que todo cuadre antes de contabilizar.");
+        }, 100);
+      }
     } catch (e) {
       setError("Error al procesar: " + e.toString());
     } finally {
