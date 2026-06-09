@@ -374,6 +374,18 @@ function TabCompras() {
     finally { setEnviando(false); setTimeout(() => setResultado(null), 5000); }
   };
 
+  const guessUnidad = (desc, parsed) => {
+    const d = String(desc||"").toUpperCase();
+    if (d.indexOf("KG")>=0) return "kg";
+    if (d.indexOf("ML")>=0) return "mL";
+    if (d.indexOf(" LT")>=0 || d.indexOf("LITRO")>=0 || /\bL\b/.test(d)) return "L";
+    const p = String(parsed||"").toLowerCase();
+    if (p.indexOf("kg")>=0) return "kg";
+    if (p.indexOf("ml")>=0) return "mL";
+    if (p.indexOf("l")>=0) return "L";
+    return "L";
+  };
+
   const leerFactura = async () => {
     if (!facturaFile) { setErrAuto("Selecciona el XML o PDF de la factura"); return; }
     setErrAuto(null); setResAuto(null); setParseando(true);
@@ -387,22 +399,53 @@ function TabCompras() {
       const d = await res.json();
       if (!d.ok) { setErrAuto(d.error || "No se pudo leer la factura"); setParseando(false); return; }
       setHeaderRev(d.header || {});
-      setLineasRev((d.lineas || []).map(l => ({
-        descripcion: l.descripcion,
-        match_id: l.match_id, match_nombre: l.match_nombre, match_score: l.match_score,
-        modo: l.match_id ? l.match_id : "__NUEVO__",
-        nombre_producto: l.match_id ? l.match_nombre : l.descripcion,
-        unidad_compra: l.unidad || "L",
-        cantidad_compra: l.cantidad,
-        cantidad_total_unidad_base: l.cantidad,
-        precio_unitario: l.valor_unitario,
-        importe: l.importe, iva: l.iva || 0, ieps: l.ieps || 0
-      })));
+      setLineasRev((d.lineas || []).map(l => {
+        const cat = l.match_id ? catalogo.find(x => x.id === l.match_id) : null;
+        const uBase = cat && cat.unidad_aplicacion ? cat.unidad_aplicacion : (cat && cat.unidad_compra ? cat.unidad_compra : guessUnidad(l.descripcion, l.unidad));
+        const fac = cat && Number(cat.factor_conversion) > 0 ? Number(cat.factor_conversion) : 1;
+        const cant = Number(l.cantidad) || 0;
+        return {
+          descripcion: l.descripcion,
+          match_id: l.match_id, match_nombre: l.match_nombre, match_score: l.match_score,
+          modo: l.match_id ? l.match_id : "__NUEVO__",
+          nombre_producto: l.match_id ? l.match_nombre : l.descripcion,
+          unidad_base: uBase,
+          factor: fac,
+          cantidad_compra: cant,
+          cantidad_total_unidad_base: Math.round(cant * fac * 100) / 100,
+          precio_unitario: l.valor_unitario,
+          importe: l.importe, iva: l.iva || 0, ieps: l.ieps || 0
+        };
+      }));
     } catch (e) { setErrAuto(e.toString()); }
     finally { setParseando(false); }
   };
 
   const setLineaRev = (i, patch) => setLineasRev(prev => prev.map((l,idx) => idx===i ? {...l, ...patch} : l));
+
+  const cambiarModo = (i, val) => {
+    const cat = catalogo.find(x => x.id === val);
+    setLineasRev(prev => prev.map((l,idx) => {
+      if (idx !== i) return l;
+      const next = { ...l, modo: val };
+      if (cat) {
+        next.unidad_base = cat.unidad_aplicacion || cat.unidad_compra || next.unidad_base;
+        if (Number(cat.factor_conversion) > 0) next.factor = Number(cat.factor_conversion);
+        next.nombre_producto = cat.nombre_comercial;
+      }
+      next.cantidad_total_unidad_base = Math.round((Number(next.cantidad_compra)||0) * (Number(next.factor)||1) * 100) / 100;
+      return next;
+    }));
+  };
+
+  const setCantFactor = (i, campo, valor) => {
+    setLineasRev(prev => prev.map((l,idx) => {
+      if (idx !== i) return l;
+      const next = { ...l, [campo]: valor };
+      next.cantidad_total_unidad_base = Math.round((Number(next.cantidad_compra)||0) * (Number(next.factor)||1) * 100) / 100;
+      return next;
+    }));
+  };
 
   const confirmarAuto = async () => {
     if (!lineasRev || lineasRev.length === 0) return;
@@ -415,9 +458,9 @@ function TabCompras() {
           nuevo: esNuevo,
           id_producto: esNuevo ? "" : l.modo,
           nombre_producto: esNuevo ? l.nombre_producto : (cat ? cat.nombre_comercial : l.nombre_producto),
-          unidad_compra: esNuevo ? l.unidad_compra : (cat ? cat.unidad_compra : l.unidad_compra),
-          unidad_aplicacion: esNuevo ? l.unidad_compra : (cat ? cat.unidad_aplicacion : l.unidad_compra),
-          factor_conversion: 1,
+          unidad_compra: l.unidad_base,
+          unidad_aplicacion: l.unidad_base,
+          factor_conversion: Number(l.factor) || 1,
           cantidad_compra: l.cantidad_compra,
           cantidad_total_unidad_base: l.cantidad_total_unidad_base || l.cantidad_compra,
           precio_unitario: l.precio_unitario,
@@ -471,16 +514,18 @@ function TabCompras() {
           ),
           h("div", {style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
             h("span", {style:{fontSize:11,color:l.modo==="__NUEVO__"?"#e8a030":"#90c848",whiteSpace:"nowrap"}}, l.modo==="__NUEVO__" ? "➕ Nuevo:" : "✓ Catálogo:"),
-            h("select", {value:l.modo,onChange:e=>setLineaRev(i,{modo:e.target.value}),style:{...C.inp,flex:1,padding:"6px 10px",fontSize:13,border:l.modo==="__NUEVO__"?"1px solid rgba(240,180,80,0.5)":"1px solid rgba(120,200,80,0.4)"}},
+            h("select", {value:l.modo,onChange:e=>cambiarModo(i,e.target.value),style:{...C.inp,flex:1,padding:"6px 10px",fontSize:13,border:l.modo==="__NUEVO__"?"1px solid rgba(240,180,80,0.5)":"1px solid rgba(120,200,80,0.4)"}},
               h("option", {value:"__NUEVO__"}, "➕ Crear producto nuevo"),
               catalogo.map(p => h("option", {key:p.id,value:p.id}, p.nombre_comercial))
             )
           ),
           l.modo==="__NUEVO__" && h("input", {value:l.nombre_producto,onChange:e=>setLineaRev(i,{nombre_producto:e.target.value}),placeholder:"Nombre para el catálogo",style:{...C.inp,marginBottom:8,fontSize:13}}),
-          h("div", {style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}},
-            h("div", null, h("label", {style:{...lbl,fontSize:10}}, "Cantidad"), h("input", {type:"number",step:"0.01",value:l.cantidad_compra,onChange:e=>setLineaRev(i,{cantidad_compra:e.target.value}),style:{...C.inp,padding:"6px 8px",fontSize:13}})),
-            h("div", null, h("label", {style:{...lbl,fontSize:10}}, "Unidad"), h("input", {value:l.unidad_compra,onChange:e=>setLineaRev(i,{unidad_compra:e.target.value}),style:{...C.inp,padding:"6px 8px",fontSize:13}})),
-            h("div", null, h("label", {style:{...lbl,fontSize:10}}, "Total u. base"), h("input", {type:"number",step:"0.01",value:l.cantidad_total_unidad_base,onChange:e=>setLineaRev(i,{cantidad_total_unidad_base:e.target.value}),style:{...C.inp,padding:"6px 8px",fontSize:13}}))
+          h("div", {style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1.2fr",gap:8}},
+            h("div", null, h("label", {style:{...lbl,fontSize:10}}, "Cantidad"), h("input", {type:"number",step:"0.01",value:l.cantidad_compra,onChange:e=>setCantFactor(i,"cantidad_compra",e.target.value),style:{...C.inp,padding:"6px 8px",fontSize:13}})),
+            h("div", null, h("label", {style:{...lbl,fontSize:10}}, "Unidad base"), h("select", {value:l.unidad_base,onChange:e=>setLineaRev(i,{unidad_base:e.target.value}),style:{...C.inp,padding:"6px 6px",fontSize:13}},
+              ["L","kg","mL","g","PZA"].map(u => h("option",{key:u,value:u},u)))),
+            h("div", null, h("label", {style:{...lbl,fontSize:10}}, "× Contenido"), h("input", {type:"number",step:"0.01",value:l.factor,onChange:e=>setCantFactor(i,"factor",e.target.value),title:"Cuántos "+l.unidad_base+" trae cada unidad comprada (ej. saco de 10 kg = 10)",style:{...C.inp,padding:"6px 8px",fontSize:13}})),
+            h("div", null, h("label", {style:{...lbl,fontSize:10}}, "= Total "+l.unidad_base), h("input", {type:"number",step:"0.01",value:l.cantidad_total_unidad_base,onChange:e=>setLineaRev(i,{cantidad_total_unidad_base:e.target.value}),style:{...C.inp,padding:"6px 8px",fontSize:13,background:"rgba(80,160,30,0.1)",color:"#90c848",fontWeight:600}}))
           )
         )),
         h("div", {style:{display:"flex",gap:10,marginTop:6}},
