@@ -579,6 +579,25 @@ function FormContabilizarConXML({datos, busqueda, fileName, onCancel, onSaved}) 
   const [metodoPago, setMetodoPago] = useState("PPD");
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState("");
+  const CENTROS_COSTOS = [
+    {c:"2", n:"Rancho La Unión"},
+    {c:"3", n:"Rancho El Arenal"},
+    {c:"4", n:"Rancho Loma Bonita"},
+    {c:"5", n:"Rancho Vista Hermosa"},
+    {c:"7", n:"Nissan"},
+    {c:"9", n:"Tractor"},
+    {c:"10", n:"Desmalezadoras"},
+    {c:"1", n:"Moto-Pro"},
+    {c:"6", n:"P.Aldo"},
+    {c:"8", n:"Bellíssima"}
+  ];
+  const [ccPorCarga, setCcPorCarga] = useState({});
+  const setCC = (id, val) => setCcPorCarga(prev => ({...prev, [id]: val}));
+  useEffect(() => {
+    const init = {};
+    cargas.forEach(c => { if (c.centro_costos) init[c.id] = String(c.centro_costos); });
+    if (Object.keys(init).length) setCcPorCarga(prev => ({...init, ...prev}));
+  }, []);
 
   const toggle = (id) => {
     const ns = new Set(seleccionadas);
@@ -597,6 +616,8 @@ function FormContabilizarConXML({datos, busqueda, fileName, onCancel, onSaved}) 
   const enviar = async () => {
     if (seleccionadas.size === 0) { setError("Selecciona al menos una carga"); return; }
     if (!cuadra) { setError("La suma de cargas seleccionadas no cuadra con el total de la factura"); return; }
+    const faltanCC = Array.from(seleccionadas).filter(id => !ccPorCarga[id]);
+    if (faltanCC.length > 0) { setError("Falta asignar centro de costos a " + faltanCC.length + " carga(s) seleccionada(s)"); return; }
     setEnviando(true); setError("");
     try {
       const payload = {
@@ -613,7 +634,8 @@ function FormContabilizarConXML({datos, busqueda, fileName, onCancel, onSaved}) 
         total_factura: totalFactura,
         forma_pago: metodoPago === "PUE" ? "03" : "99",
         metodo_pago: metodoPago,
-        contabilizado_por: "Adry"
+        contabilizado_por: "Adry",
+        centros_costos: Array.from(seleccionadas).reduce((acc,id)=>{ acc[id] = ccPorCarga[id] || ""; return acc; }, {})
       };
       const res = await fetch(SHEETS_URL, { method: "POST", body: JSON.stringify(payload) });
       const data = await res.json();
@@ -706,21 +728,34 @@ function FormContabilizarConXML({datos, busqueda, fileName, onCancel, onSaved}) 
       cargas.length === 0 && h("div", {style:{color:"#7a9058",textAlign:"center",padding:14,fontStyle:"italic"}},
         "No hay cargas pendientes"),
       cargas.map((c,i) => h("div", {key:i,
-        style:{display:"flex",alignItems:"center",gap:10,padding:10,marginBottom:6,
+        style:{padding:10,marginBottom:6,
                background:seleccionadas.has(c.id) ? "rgba(60,120,40,0.15)" : "rgba(255,255,255,0.02)",
                border: seleccionadas.has(c.id) ? "1px solid rgba(120,200,80,0.4)" : "1px solid rgba(255,255,255,0.05)",
-               borderRadius:9,cursor:"pointer"},
-        onClick: () => toggle(c.id)},
-        h("input", {type:"checkbox",checked:seleccionadas.has(c.id),onChange:()=>{},
-                   style:{width:18,height:18,cursor:"pointer"}}),
-        h("div", {style:{flex:1,minWidth:0}},
-          h("div", {style:{fontSize:11,color:"#7a9058"}}, fmtFecha(c.fecha) + " · " + c.id),
-          h("div", {style:{fontSize:13,color:"#c8e898",fontWeight:600}}, c.tipo + " · " + (c.lugar || "—")),
-          c.notas && h("div", {style:{fontSize:11,color:"#7a9058",fontStyle:"italic"}}, c.notas)
+               borderRadius:9}},
+        h("div", {style:{display:"flex",alignItems:"center",gap:10,cursor:"pointer"},
+          onClick: () => toggle(c.id)},
+          h("input", {type:"checkbox",checked:seleccionadas.has(c.id),onChange:()=>{},
+                     style:{width:18,height:18,cursor:"pointer"}}),
+          h("div", {style:{flex:1,minWidth:0}},
+            h("div", {style:{fontSize:11,color:"#7a9058"}}, fmtFecha(c.fecha) + " · " + c.id),
+            h("div", {style:{fontSize:13,color:"#c8e898",fontWeight:600}}, c.tipo + " · " + (c.lugar || "—")),
+            c.notas && h("div", {style:{fontSize:11,color:"#7a9058",fontStyle:"italic"}}, c.notas)
+          ),
+          h("div", {style:{textAlign:"right"}},
+            h("div", {style:{fontSize:12,color:"#a0c870"}}, fmtNum(c.litros) + " L"),
+            h("div", {style:{fontSize:14,fontWeight:700,color:"#e8a030"}}, fmtMXN(c.total))
+          )
         ),
-        h("div", {style:{textAlign:"right"}},
-          h("div", {style:{fontSize:12,color:"#a0c870"}}, fmtNum(c.litros) + " L"),
-          h("div", {style:{fontSize:14,fontWeight:700,color:"#e8a030"}}, fmtMXN(c.total))
+        seleccionadas.has(c.id) && h("div", {style:{display:"flex",alignItems:"center",gap:8,marginTop:8,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.06)"},
+          onClick:(e)=>e.stopPropagation()},
+          h("span", {style:{fontSize:11,color:"#7a9058",letterSpacing:0.5,whiteSpace:"nowrap"}}, "🏷️ Centro de costos:"),
+          h("select", {value:ccPorCarga[c.id]||"", onClick:(e)=>e.stopPropagation(),
+                       onChange:(e)=>setCC(c.id, e.target.value),
+                       style:{...C.inp, flex:1, padding:"6px 10px", fontSize:13,
+                              border: ccPorCarga[c.id] ? "1px solid rgba(120,200,80,0.45)" : "1px solid rgba(240,180,80,0.55)"}},
+            h("option", {value:""}, "— elegir —"),
+            CENTROS_COSTOS.map(cc => h("option", {key:cc.c, value:cc.c}, cc.c + " · " + cc.n))
+          )
         )
       )),
       // Validación de cuadre
@@ -1248,7 +1283,7 @@ function SubCombustiblePolizas() {
 
   const exportarCSV = () => {
     if (polizas.length === 0) return;
-    const lineas = ["tipo,numero_poliza,fecha,concepto,cuenta,nombre_cuenta,cargo,abono,referencia,uuid,rfc,proveedor,folio"];
+    const lineas = ["tipo,numero_poliza,fecha,concepto,cuenta,nombre_cuenta,cargo,abono,centro_costos,referencia,uuid,rfc,proveedor,folio"];
     polizas.forEach(p => {
       p.movimientos.forEach(m => {
         const fila = [
@@ -1260,6 +1295,7 @@ function SubCombustiblePolizas() {
           '"' + (m.nombre_cuenta || "").replace(/"/g, '""') + '"',
           m.cargo || "",
           m.abono || "",
+          m.centro_costos || "",
           p.referencia || "",
           p.uuid || "",
           p.rfc || "",
