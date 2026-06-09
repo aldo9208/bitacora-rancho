@@ -422,6 +422,563 @@ function TabCompras() {
   );
 }
 
+// ── Tab: Combustible (4 sub-secciones para Adry) ─────────────────────────────
+function TabCombustible() {
+  const [subTab, setSubTab] = useState("pendientes");
+  // pendientes | contabilizadas | stock | polizas
+
+  return h("div", null,
+    h("div", {style:{marginBottom:18}},
+      h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:2,marginBottom:4}}, "DIESEL Y GASOLINA"),
+      h("div", {style:{fontSize:22,fontWeight:700,color:"#b8e870"}}, "Combustible")
+    ),
+    // Sub-tabs
+    h("div", {style:{display:"flex",gap:4,marginBottom:18,flexWrap:"wrap",borderBottom:"1px solid rgba(120,180,60,0.14)"}},
+      [
+        {id:"pendientes",    label:"🟡 Pendientes de contabilizar"},
+        {id:"contabilizadas",label:"✅ Contabilizadas"},
+        {id:"stock",         label:"📊 Stock y consumos"},
+        {id:"polizas",       label:"📄 Pólizas para COI"}
+      ].map(t => h("button", {key:t.id,onClick:()=>setSubTab(t.id),
+        style:{background:subTab===t.id?"rgba(80,160,30,0.18)":"transparent",border:"none",
+               color:subTab===t.id?"#d8f8a0":"#7a9a68",padding:"10px 14px",fontSize:13,
+               fontWeight:subTab===t.id?700:400,cursor:"pointer",
+               borderBottom:`2px solid ${subTab===t.id?"#70c040":"transparent"}`}}, t.label))
+    ),
+    subTab === "pendientes" && h(SubCombustiblePendientes),
+    subTab === "contabilizadas" && h(SubCombustibleContabilizadas),
+    subTab === "stock" && h(SubCombustibleStock),
+    subTab === "polizas" && h(SubCombustiblePolizas)
+  );
+}
+
+// ── Sub: Pendientes de contabilizar ──────────────────────────────────────────
+function SubCombustiblePendientes() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [selected, setSelected] = useState(null);  // carga seleccionada para contabilizar
+  const [refresh, setRefresh] = useState(0);
+
+  useEffect(() => {
+    setLoading(true); setError("");
+    fetch(SHEETS_URL + "?accion=obtener_cargas_pendientes")
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(e => { setError(e.toString()); setLoading(false); });
+  }, [refresh]);
+
+  if (selected) {
+    return h(FormContabilizar, {
+      carga: selected,
+      onCancel: () => setSelected(null),
+      onSaved: () => { setSelected(null); setRefresh(r => r+1); }
+    });
+  }
+
+  const cargas = (data && data.cargas) || [];
+  return h("div", null,
+    loading && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30}}, "Cargando..."),
+    error && h("div", {style:{color:"#e08060",padding:14,background:"rgba(200,80,60,0.1)",borderRadius:10}}, "Error: " + error),
+    !loading && cargas.length === 0 && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30,fontStyle:"italic"}},
+      "🎉 No hay cargas pendientes. ¡Todo contabilizado!"),
+    !loading && cargas.length > 0 && h("div", {style:{fontSize:11,color:"#5a7a40",letterSpacing:1.5,marginBottom:10}},
+      cargas.length + " CARGA" + (cargas.length>1?"S":"") + " PENDIENTE" + (cargas.length>1?"S":"")),
+    !loading && cargas.map((c,i) => h("div", {key:i,style:C.card},
+      h("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8,flexWrap:"wrap",gap:8}},
+        h("div", {style:{flex:1,minWidth:200}},
+          h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.2,marginBottom:2}},
+            fmtFecha(c.fecha) + " · " + c.id),
+          h("div", {style:{fontSize:15,fontWeight:700,color:"#c8e898"}}, c.tipo),
+          h("div", {style:{fontSize:13,color:"#a0c870",marginTop:2}}, c.lugar || "—"),
+          c.notas && h("div", {style:{fontSize:11,color:"#7a9058",marginTop:2,fontStyle:"italic"}}, c.notas)
+        ),
+        h("div", {style:{textAlign:"right"}},
+          h("div", {style:{fontSize:14,fontWeight:700,color:"#90c848"}}, fmtNum(c.litros) + " L"),
+          h("div", {style:{fontSize:15,fontWeight:700,color:"#e8a030"}}, fmtMXN(c.total)),
+          h("div", {style:{fontSize:11,color:"#7a9058"}}, fmtMXN(c.precio_L) + "/L")
+        )
+      ),
+      h("div", {style:{display:"flex",gap:8,marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.05)",flexWrap:"wrap"}},
+        c.link_foto_ticket && h("a", {href:c.link_foto_ticket,target:"_blank",
+          style:{...C.ghost,padding:"7px 12px",fontSize:12,textDecoration:"none",display:"inline-block"}},
+          "📸 Ver ticket"),
+        h("button", {onClick:()=>setSelected(c),
+          style:{background:"linear-gradient(135deg,#2a6a14,#1e5010)",border:"none",borderRadius:9,
+                 color:"#c8f090",padding:"7px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}},
+          "💼 Contabilizar")
+      )
+    ))
+  );
+}
+
+// ── Form: Contabilizar una carga ─────────────────────────────────────────────
+function FormContabilizar({carga, onCancel, onSaved}) {
+  const [form, setForm] = useState({
+    proveedor: carga.proveedor || "",
+    rfc_emisor: carga.rfc_emisor || "",
+    folio_factura: carga.folio_factura || "",
+    folio_fiscal: carga.folio_fiscal || "",
+    fecha_factura: (carga.fecha_factura || carga.fecha || new Date().toISOString()).substring(0,10),
+    subtotal: "",
+    iva: "",
+    ieps: "",
+    total_factura: String(carga.total || ""),
+    forma_pago: "03",     // 03 = transferencia
+    metodo_pago: "PPD",
+  });
+  const [enviando, setEnviando] = useState(false);
+  const [error, setError] = useState("");
+
+  // Auto-cálculo cuando el usuario solo captura subtotal + ieps
+  const autoCalcular = () => {
+    const sub = parseFloat(form.subtotal) || 0;
+    const ie = parseFloat(form.ieps) || 0;
+    const tot = parseFloat(form.total_factura) || 0;
+    // Asume IVA 16% sobre subtotal gravable
+    const iva = sub * 0.16;
+    setForm(f => ({...f, iva: iva.toFixed(2)}));
+  };
+
+  // Vista previa de la póliza
+  const sub = parseFloat(form.subtotal) || 0;
+  const iva = parseFloat(form.iva) || 0;
+  const ieps = parseFloat(form.ieps) || 0;
+  const tot = parseFloat(form.total_factura) || 0;
+  const parteGravable = sub + iva;
+  const parteExenta = ieps;
+  const totalCalculado = parteGravable + parteExenta;
+  const diferencia = Math.abs(totalCalculado - tot);
+  const cuadra = tot > 0 && diferencia <= 0.05;
+  const cuentaIva = form.metodo_pago === "PUE" ? "1191-001-0002" : "1196-001-0002";
+  const nombreCuentaIva = form.metodo_pago === "PUE" ? "IVA acreditable PUE" : "IVA por acreditar PPD";
+
+  const enviar = async () => {
+    if (!cuadra) { setError("Total no cuadra. Subtotal + IEPS + IVA debe ser igual al total."); return; }
+    if (!form.proveedor) { setError("Falta el proveedor"); return; }
+    setError(""); setEnviando(true);
+    try {
+      const payload = {
+        accion: "marcar_carga_contabilizada",
+        id: carga.id,
+        proveedor: form.proveedor,
+        rfc_emisor: form.rfc_emisor,
+        folio_factura: form.folio_factura,
+        folio_fiscal: form.folio_fiscal,
+        fecha_factura: form.fecha_factura,
+        subtotal: form.subtotal,
+        iva: form.iva,
+        ieps: form.ieps,
+        total_factura: form.total_factura,
+        forma_pago: form.forma_pago,
+        metodo_pago: form.metodo_pago,
+        contabilizado_por: "Adry"
+      };
+      const res = await fetch(SHEETS_URL, {method:"POST", body: JSON.stringify(payload)});
+      const data = await res.json();
+      if (data.ok) {
+        onSaved();
+      } else {
+        setError(data.error || "Error al contabilizar");
+      }
+    } catch(e) { setError(e.toString()); }
+    finally { setEnviando(false); }
+  };
+
+  return h("div", null,
+    h("div", {style:{marginBottom:14,display:"flex",alignItems:"center",gap:10}},
+      h("button", {onClick:onCancel,style:{...C.ghost,padding:"8px 12px"}}, "← Volver"),
+      h("div", {style:{fontSize:18,fontWeight:700,color:"#b8e870"}}, "Contabilizar carga")
+    ),
+    error && h("div", {style:{padding:12,background:"rgba(200,80,60,0.12)",border:"1px solid rgba(200,80,60,0.3)",borderRadius:10,color:"#e08060",marginBottom:14,fontSize:13}}, "⚠️ " + error),
+    // Resumen de la carga
+    h("div", {style:{...C.card,background:"rgba(80,160,30,0.06)",border:"1px solid rgba(120,200,80,0.18)"}},
+      h("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}},
+        h("div", null,
+          h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.2}}, "CARGA " + carga.id),
+          h("div", {style:{fontSize:15,fontWeight:700,color:"#c8e898"}}, carga.tipo + " · " + carga.lugar),
+          carga.notas && h("div", {style:{fontSize:11,color:"#7a9058",fontStyle:"italic",marginTop:2}}, carga.notas)
+        ),
+        h("div", {style:{textAlign:"right"}},
+          h("div", {style:{fontSize:14,fontWeight:700,color:"#90c848"}}, fmtNum(carga.litros) + " L"),
+          h("div", {style:{fontSize:14,color:"#e8a030"}}, fmtMXN(carga.total))
+        )
+      ),
+      carga.link_foto_ticket && h("a", {href:carga.link_foto_ticket,target:"_blank",
+        style:{color:"#8ab060",fontSize:12,textDecoration:"none",display:"inline-block",marginTop:8}},
+        "📸 Ver foto del ticket")
+    ),
+    // Datos fiscales
+    h("div", {style:C.card},
+      h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:1.5,marginBottom:10}}, "DATOS DE LA FACTURA"),
+      h("div", {className:"grid2",style:{display:"grid",gridTemplateColumns:"2fr 1fr",gap:10,marginBottom:10}},
+        h("div", null,
+          h("label", {style:lbl}, "Proveedor"),
+          h("input", {value:form.proveedor,onChange:e=>setForm(f=>({...f,proveedor:e.target.value})),placeholder:"Pemex Estación XX",style:C.inp})
+        ),
+        h("div", null,
+          h("label", {style:lbl}, "RFC emisor"),
+          h("input", {value:form.rfc_emisor,onChange:e=>setForm(f=>({...f,rfc_emisor:e.target.value})),placeholder:"PEP970814I12",style:C.inp})
+        )
+      ),
+      h("div", {className:"grid2",style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10}},
+        h("div", null,
+          h("label", {style:lbl}, "Folio factura"),
+          h("input", {value:form.folio_factura,onChange:e=>setForm(f=>({...f,folio_factura:e.target.value})),style:C.inp})
+        ),
+        h("div", null,
+          h("label", {style:lbl}, "Fecha factura"),
+          h("input", {type:"date",value:form.fecha_factura,onChange:e=>setForm(f=>({...f,fecha_factura:e.target.value})),style:C.inp})
+        ),
+        h("div", null,
+          h("label", {style:lbl}, "Método de pago"),
+          h("select", {value:form.metodo_pago,onChange:e=>setForm(f=>({...f,metodo_pago:e.target.value})),style:C.inp},
+            h("option", {value:"PPD"}, "PPD (a crédito)"),
+            h("option", {value:"PUE"}, "PUE (pago inmediato)")
+          )
+        )
+      ),
+      h("div", {style:{marginBottom:10}},
+        h("label", {style:lbl}, "Folio fiscal (UUID) — opcional"),
+        h("input", {value:form.folio_fiscal,onChange:e=>setForm(f=>({...f,folio_fiscal:e.target.value})),placeholder:"XXXX-XXXX-XXXX-XXXX",style:{...C.inp,fontFamily:"monospace",fontSize:12}})
+      ),
+      // Desglose monetario
+      h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:1.5,marginTop:10,marginBottom:10,paddingTop:10,borderTop:"1px solid rgba(120,180,60,0.15)"}}, "DESGLOSE MONETARIO"),
+      h("div", {className:"grid4",style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10,marginBottom:8}},
+        h("div", null,
+          h("label", {style:lbl}, "Subtotal gravable"),
+          h("input", {type:"number",step:"0.01",value:form.subtotal,onChange:e=>setForm(f=>({...f,subtotal:e.target.value})),placeholder:"0.00",style:C.inp})
+        ),
+        h("div", null,
+          h("label", {style:lbl}, "IEPS"),
+          h("input", {type:"number",step:"0.01",value:form.ieps,onChange:e=>setForm(f=>({...f,ieps:e.target.value})),placeholder:"0.00",style:C.inp})
+        ),
+        h("div", null,
+          h("label", {style:lbl}, "IVA 16%"),
+          h("input", {type:"number",step:"0.01",value:form.iva,onChange:e=>setForm(f=>({...f,iva:e.target.value})),placeholder:"0.00",style:C.inp})
+        ),
+        h("div", null,
+          h("label", {style:lbl}, "Total factura"),
+          h("input", {type:"number",step:"0.01",value:form.total_factura,onChange:e=>setForm(f=>({...f,total_factura:e.target.value})),placeholder:"0.00",style:{...C.inp,background:"rgba(200,160,60,0.1)",color:"#e8c870",fontWeight:700}})
+        )
+      ),
+      h("button", {onClick:autoCalcular,style:{...C.ghost,fontSize:11,padding:"6px 10px",marginTop:5}},
+        "🧮 Auto-calcular IVA (16% del subtotal)"),
+      // Validación
+      tot > 0 && h("div", {style:{padding:11,marginTop:14,
+        background:cuadra?"rgba(80,160,30,0.1)":"rgba(200,80,60,0.1)",
+        border:`1px solid ${cuadra?"rgba(120,200,80,0.3)":"rgba(200,80,60,0.3)"}`,
+        borderRadius:10,fontSize:13,
+        color:cuadra?"#90c848":"#e08060"}},
+        cuadra
+          ? "✅ Cuadra: " + fmtMXN(sub) + " + " + fmtMXN(ieps) + " + " + fmtMXN(iva) + " = " + fmtMXN(totalCalculado)
+          : "⚠️ No cuadra. Suma: " + fmtMXN(totalCalculado) + " · Total capturado: " + fmtMXN(tot) + " · Diferencia: " + fmtMXN(diferencia)
+      )
+    ),
+    // Vista previa de póliza
+    cuadra && h("div", {style:C.card},
+      h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:1.5,marginBottom:10}}, "VISTA PREVIA DE PÓLIZA Dr (Diario)"),
+      h("table", {style:{fontFamily:"monospace",fontSize:12,width:"100%"}},
+        h("thead", null,
+          h("tr", null,
+            h("th", {style:{textAlign:"left",color:"#6a9050",fontSize:10,padding:"6px 4px"}}, "CUENTA"),
+            h("th", {style:{textAlign:"left",color:"#6a9050",fontSize:10,padding:"6px 4px"}}, "NOMBRE"),
+            h("th", {style:{textAlign:"right",color:"#6a9050",fontSize:10,padding:"6px 4px"}}, "CARGO"),
+            h("th", {style:{textAlign:"right",color:"#6a9050",fontSize:10,padding:"6px 4px"}}, "ABONO")
+          )
+        ),
+        h("tbody", null,
+          h("tr", null,
+            h("td", {style:{padding:"5px 4px",color:"#b8e870"}}, "6000-021-0001"),
+            h("td", {style:{padding:"5px 4px",color:"#a0c870"}}, "Combustibles"),
+            h("td", {style:{padding:"5px 4px",textAlign:"right",color:"#90c848"}}, fmtMXN(sub)),
+            h("td", {style:{padding:"5px 4px",textAlign:"right",color:"#5a7a40"}}, "—")
+          ),
+          ieps > 0 && h("tr", null,
+            h("td", {style:{padding:"5px 4px",color:"#b8e870"}}, "6000-023-0009"),
+            h("td", {style:{padding:"5px 4px",color:"#a0c870"}}, "IEPS gastos"),
+            h("td", {style:{padding:"5px 4px",textAlign:"right",color:"#90c848"}}, fmtMXN(ieps)),
+            h("td", {style:{padding:"5px 4px",textAlign:"right",color:"#5a7a40"}}, "—")
+          ),
+          iva > 0 && h("tr", null,
+            h("td", {style:{padding:"5px 4px",color:"#b8e870"}}, cuentaIva),
+            h("td", {style:{padding:"5px 4px",color:"#a0c870"}}, nombreCuentaIva),
+            h("td", {style:{padding:"5px 4px",textAlign:"right",color:"#90c848"}}, fmtMXN(iva)),
+            h("td", {style:{padding:"5px 4px",textAlign:"right",color:"#5a7a40"}}, "—")
+          ),
+          parteGravable > 0 && h("tr", null,
+            h("td", {style:{padding:"5px 4px",color:"#b8e870"}}, "2110-002"),
+            h("td", {style:{padding:"5px 4px",color:"#a0c870"}}, "Proveedor 16%"),
+            h("td", {style:{padding:"5px 4px",textAlign:"right",color:"#5a7a40"}}, "—"),
+            h("td", {style:{padding:"5px 4px",textAlign:"right",color:"#c8a030"}}, fmtMXN(parteGravable))
+          ),
+          parteExenta > 0 && h("tr", null,
+            h("td", {style:{padding:"5px 4px",color:"#b8e870"}}, "2110-003"),
+            h("td", {style:{padding:"5px 4px",color:"#a0c870"}}, "Proveedor 0% exento"),
+            h("td", {style:{padding:"5px 4px",textAlign:"right",color:"#5a7a40"}}, "—"),
+            h("td", {style:{padding:"5px 4px",textAlign:"right",color:"#c8a030"}}, fmtMXN(parteExenta))
+          )
+        )
+      )
+    ),
+    h("div", {style:{display:"flex",gap:10,marginTop:14}},
+      h("button", {onClick:onCancel,style:{...C.ghost,flex:1,padding:"12px"}}, "Cancelar"),
+      h("button", {onClick:enviar,disabled:enviando||!cuadra,
+        style:{...C.bigBtn,flex:2,opacity:(enviando||!cuadra)?0.5:1,cursor:(enviando||!cuadra)?"not-allowed":"pointer"}},
+        enviando ? "⏳ Contabilizando..." : "💼 Marcar como contabilizado")
+    )
+  );
+}
+
+// ── Sub: Contabilizadas (con botón para registrar pago) ──────────────────────
+function SubCombustibleContabilizadas() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [pagando, setPagando] = useState(null);  // id de la carga que se está pagando
+  const [refresh, setRefresh] = useState(0);
+
+  useEffect(() => {
+    setLoading(true); setError("");
+    fetch(SHEETS_URL + "?accion=obtener_cargas_contabilizadas")
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(e => { setError(e.toString()); setLoading(false); });
+  }, [refresh]);
+
+  const registrarPago = async (carga) => {
+    if (!confirm("¿Confirmar pago de " + fmtMXN(carga.total_factura) + " desde BBVA?")) return;
+    setPagando(carga.id);
+    try {
+      const res = await fetch(SHEETS_URL, {method:"POST", body: JSON.stringify({
+        accion: "marcar_carga_pagada",
+        id: carga.id,
+        fecha_pago: new Date().toISOString(),
+        cuenta_banco: "1120-001-0001",
+        pagado_por: "Adry"
+      })});
+      const data = await res.json();
+      if (data.ok) {
+        setRefresh(r => r+1);
+      } else {
+        alert("Error: " + (data.error || "desconocido"));
+      }
+    } catch(e) { alert("Error: " + e.toString()); }
+    finally { setPagando(null); }
+  };
+
+  const cargas = (data && data.cargas) || [];
+  return h("div", null,
+    loading && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30}}, "Cargando..."),
+    error && h("div", {style:{color:"#e08060",padding:14,background:"rgba(200,80,60,0.1)",borderRadius:10}}, "Error: " + error),
+    !loading && cargas.length === 0 && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30,fontStyle:"italic"}},
+      "Aún no hay cargas contabilizadas"),
+    !loading && cargas.length > 0 && h("div", {style:{fontSize:11,color:"#5a7a40",letterSpacing:1.5,marginBottom:10}},
+      cargas.length + " CARGA" + (cargas.length>1?"S":"") + " CONTABILIZADA" + (cargas.length>1?"S":"") + " PENDIENTE" + (cargas.length>1?"S":"") + " DE PAGO"),
+    !loading && cargas.map((c,i) => h("div", {key:i,style:C.card},
+      h("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8,flexWrap:"wrap",gap:8}},
+        h("div", {style:{flex:1,minWidth:200}},
+          h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.2,marginBottom:2}},
+            fmtFecha(c.fecha_factura || c.fecha) + " · " + (c.folio_factura || c.id)),
+          h("div", {style:{fontSize:15,fontWeight:700,color:"#c8e898"}}, c.proveedor || "—"),
+          h("div", {style:{fontSize:12,color:"#a0c870"}}, c.tipo + " · " + (c.lugar || "")),
+          h("div", {style:{fontSize:11,color:"#7a9058",marginTop:2}},
+            "RFC: " + (c.rfc_emisor || "—") + " · " + c.metodo_pago)
+        ),
+        h("div", {style:{textAlign:"right"}},
+          h("div", {style:{fontSize:11,color:"#7a9058"}}, "Subtotal " + fmtMXN(c.subtotal)),
+          c.iva > 0 && h("div", {style:{fontSize:11,color:"#7a9058"}}, "IVA " + fmtMXN(c.iva)),
+          c.ieps > 0 && h("div", {style:{fontSize:11,color:"#7a9058"}}, "IEPS " + fmtMXN(c.ieps)),
+          h("div", {style:{fontSize:15,fontWeight:700,color:"#e8a030",marginTop:3}}, fmtMXN(c.total_factura))
+        )
+      ),
+      h("div", {style:{display:"flex",gap:8,marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.05)",flexWrap:"wrap",alignItems:"center"}},
+        c.link_foto_ticket && h("a", {href:c.link_foto_ticket,target:"_blank",
+          style:{color:"#8ab060",fontSize:12,textDecoration:"none"}}, "📸 Ticket"),
+        h("div", {style:{flex:1}}),
+        h("button", {onClick:()=>registrarPago(c),disabled:pagando===c.id,
+          style:{background:"linear-gradient(135deg,#4a3a8a,#3a2a6a)",border:"none",borderRadius:9,
+                 color:"#d8c8f8",padding:"7px 16px",fontSize:13,fontWeight:700,cursor:"pointer",
+                 opacity:pagando===c.id?0.6:1}},
+          pagando===c.id ? "⏳ Procesando..." : "💰 Registrar pago BBVA")
+      )
+    ))
+  );
+}
+
+// ── Sub: Stock y consumos ────────────────────────────────────────────────────
+function SubCombustibleStock() {
+  const stockData = useFetch(SHEETS_URL + "?accion=obtener_stock_combustible");
+  const consumosData = useFetch(SHEETS_URL + "?accion=obtener_consumos_combustible");
+
+  const stock = (stockData.data && stockData.data.stock) || [];
+  const consumos = (consumosData.data && consumosData.data.consumos) || [];
+
+  // Agrupar consumos por equipo
+  const porEquipo = {};
+  consumos.forEach(k => {
+    const eq = k.equipo || "Sin asignar";
+    if (!porEquipo[eq]) porEquipo[eq] = { litros: 0, count: 0 };
+    porEquipo[eq].litros += Number(k.litros) || 0;
+    porEquipo[eq].count += 1;
+  });
+
+  return h("div", null,
+    h("div", {className:"grid2",style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:18}},
+      stock.map((s,i) => h("div", {key:i,style:C.card},
+        h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:4}}, s.tipo.toUpperCase()),
+        h("div", {style:{fontSize:32,fontWeight:800,color:Number(s.stock_actual)<30?"#e8c060":"#90c848"}},
+          fmtNum(s.stock_actual) + " L"),
+        h("div", {style:{fontSize:12,color:"#7a9058",marginTop:6}},
+          "Cargado: " + fmtNum(s.litros_cargados) + " L · Consumido: " + fmtNum(s.litros_consumidos) + " L"),
+        h("div", {style:{fontSize:12,color:"#e8a030",marginTop:2}},
+          "Gasto: " + fmtMXN(s.gasto_total) + " (" + fmtMXN(s.precio_promedio_L) + "/L)")
+      ))
+    ),
+    Object.keys(porEquipo).length > 0 && h("div", null,
+      h("div", {style:{fontSize:11,color:"#5a7a40",letterSpacing:2,marginBottom:8}}, "CONSUMO POR EQUIPO"),
+      Object.entries(porEquipo).sort((a,b)=>b[1].litros-a[1].litros).map(([eq, info]) =>
+        h("div", {key:eq,style:{...C.card,padding:"10px 14px"}},
+          h("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+            h("div", {style:{fontSize:14,color:"#c8e898"}}, eq),
+            h("div", {style:{textAlign:"right"}},
+              h("div", {style:{fontSize:14,fontWeight:700,color:"#90c848"}}, fmtNum(info.litros) + " L"),
+              h("div", {style:{fontSize:11,color:"#7a9058"}}, info.count + " consumo" + (info.count>1?"s":""))
+            )
+          )
+        )
+      )
+    ),
+    consumos.length > 0 && h("div", {style:{marginTop:18}},
+      h("div", {style:{fontSize:11,color:"#5a7a40",letterSpacing:2,marginBottom:8}}, "ÚLTIMOS CONSUMOS"),
+      consumos.slice(0, 15).map((k,i) => h("div", {key:i,style:{...C.card,padding:"10px 14px"}},
+        h("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+          h("div", null,
+            h("div", {style:{fontSize:11,color:"#6a9050"}}, fmtFecha(k.fecha) + " · " + k.tipo),
+            h("div", {style:{fontSize:13,color:"#c8e898"}}, k.equipo),
+            k.actividad && h("div", {style:{fontSize:11,color:"#8aa870",fontStyle:"italic"}}, k.actividad)
+          ),
+          h("div", {style:{textAlign:"right"}},
+            h("div", {style:{fontSize:13,fontWeight:700,color:"#c8a030"}}, fmtNum(k.litros) + " L"),
+            k.operador && h("div", {style:{fontSize:11,color:"#8aa870"}}, k.operador)
+          )
+        )
+      ))
+    )
+  );
+}
+
+// ── Sub: Pólizas para COI ────────────────────────────────────────────────────
+function SubCombustiblePolizas() {
+  const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const ahora = new Date();
+  const [mes, setMes] = useState(MESES[ahora.getMonth()] + ahora.getFullYear());
+
+  const {data, loading, error} = useFetch(SHEETS_URL + "?accion=obtener_polizas_mes&mes=" + encodeURIComponent(mes), [mes]);
+  const polizas = (data && data.polizas) || [];
+
+  const mesesOpciones = [];
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(ahora.getFullYear(), ahora.getMonth() - i, 1);
+    mesesOpciones.push(MESES[d.getMonth()] + d.getFullYear());
+  }
+
+  const exportarCSV = () => {
+    if (polizas.length === 0) return;
+    const lineas = ["tipo,numero_poliza,fecha,concepto,cuenta,nombre_cuenta,cargo,abono,referencia,uuid,rfc,proveedor,folio"];
+    polizas.forEach(p => {
+      p.movimientos.forEach(m => {
+        const fila = [
+          p.tipo_poliza,
+          p.numero_poliza,
+          fmtFecha(p.fecha),
+          '"' + (p.concepto || "").replace(/"/g, '""') + '"',
+          m.cuenta,
+          '"' + (m.nombre_cuenta || "").replace(/"/g, '""') + '"',
+          m.cargo || "",
+          m.abono || "",
+          p.referencia || "",
+          p.uuid || "",
+          p.rfc || "",
+          '"' + (p.proveedor || "").replace(/"/g, '""') + '"',
+          p.folio || ""
+        ].join(",");
+        lineas.push(fila);
+      });
+    });
+    const csv = "\uFEFF" + lineas.join("\n");  // BOM para Excel
+    const blob = new Blob([csv], {type: "text/csv;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "Polizas_" + mes + ".csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const totalCargo = polizas.reduce((s,p) => s + (p.total_cargo || 0), 0);
+  const totalAbono = polizas.reduce((s,p) => s + (p.total_abono || 0), 0);
+
+  return h("div", null,
+    h("div", {style:{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap",alignItems:"end"}},
+      h("div", {style:{flex:1,minWidth:200}},
+        h("label", {style:lbl}, "Mes"),
+        h("select", {value:mes,onChange:e=>setMes(e.target.value),style:{...C.inp,maxWidth:280}},
+          mesesOpciones.map(m => h("option", {key:m,value:m}, m))
+        )
+      ),
+      h("button", {onClick:exportarCSV,disabled:polizas.length===0,
+        style:{background:"linear-gradient(135deg,#2a6a14,#1e5010)",border:"none",borderRadius:10,
+               color:"#c8f090",padding:"12px 18px",fontSize:14,fontWeight:700,cursor:polizas.length===0?"not-allowed":"pointer",
+               opacity:polizas.length===0?0.5:1}},
+        "📥 Exportar CSV para COI")
+    ),
+    polizas.length > 0 && h("div", {className:"grid3",style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:14}},
+      h("div", {style:C.stat},
+        h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "PÓLIZAS"),
+        h("div", {style:{fontSize:28,fontWeight:800,color:"#b8e870"}}, polizas.length)
+      ),
+      h("div", {style:C.stat},
+        h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "TOTAL CARGO"),
+        h("div", {style:{fontSize:18,fontWeight:800,color:"#90c848"}}, fmtMXN(totalCargo))
+      ),
+      h("div", {style:C.stat},
+        h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "TOTAL ABONO"),
+        h("div", {style:{fontSize:18,fontWeight:800,color:"#c8a030"}}, fmtMXN(totalAbono))
+      )
+    ),
+    loading && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30}}, "Cargando..."),
+    error && h("div", {style:{color:"#e08060",padding:14}}, "Error: " + error),
+    !loading && polizas.length === 0 && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30,fontStyle:"italic"}},
+      "Sin pólizas en " + mes),
+    !loading && polizas.map((p,i) => h("div", {key:i,style:C.card},
+      h("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:8}},
+        h("div", null,
+          h("div", {style:{fontSize:13,fontWeight:700,color:p.tipo_poliza==="Dr"?"#b8e870":"#c8a8e8"}},
+            p.tipo_poliza + " · " + p.numero_poliza),
+          h("div", {style:{fontSize:12,color:"#a0c870"}}, p.concepto)
+        ),
+        h("div", {style:{fontSize:11,color:"#7a9058",textAlign:"right"}},
+          fmtFecha(p.fecha)
+        )
+      ),
+      h("table", {style:{fontFamily:"monospace",fontSize:11,width:"100%",marginTop:6}},
+        h("tbody", null,
+          p.movimientos.map((m,j) => h("tr", {key:j},
+            h("td", {style:{padding:"3px 4px",color:"#b8e870",width:120}}, m.cuenta),
+            h("td", {style:{padding:"3px 4px",color:"#a0c870"}}, m.nombre_cuenta),
+            h("td", {style:{padding:"3px 4px",textAlign:"right",color:"#90c848",width:90}},
+              m.cargo > 0 ? fmtMXN(m.cargo) : "—"),
+            h("td", {style:{padding:"3px 4px",textAlign:"right",color:"#c8a030",width:90}},
+              m.abono > 0 ? fmtMXN(m.abono) : "—")
+          ))
+        )
+      )
+    ))
+  );
+}
+
+// ── App ──────────────────────────────────────────────────────────────────────
 function App() {
   const [logged, setLogged] = useState(() => load("admin_ok", false));
   const [tab, setTab] = useState("actividades");
@@ -431,6 +988,7 @@ function App() {
     {id:"jornaleros",  label:"👥 Jornaleros"},
     {id:"aplicaciones", label:"🧪 Aplicaciones"},
     {id:"dashboard",   label:"📦 Inventario"},
+    {id:"combustible", label:"⛽ Combustible"},
     {id:"compras",     label:"🧾 Capturar compra"},
   ];
   return h("div", {style:{background:"#0e1a0a",minHeight:"100vh"}},
@@ -454,6 +1012,7 @@ function App() {
       tab === "jornaleros"  && h(TabJornaleros),
       tab === "aplicaciones"&& h(TabAplicaciones),
       tab === "dashboard"   && h(TabDashboard),
+      tab === "combustible" && h(TabCombustible),
       tab === "compras"     && h(TabCompras)
     )
   );
