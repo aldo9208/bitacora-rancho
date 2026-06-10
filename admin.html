@@ -143,6 +143,7 @@ function FormAgregarManual({ onSaved }) {
         fecha: new Date().toISOString().slice(0,10),
         capturado_por: "Admin",
         notas: "Entrada manual",
+        estado_default: "pendiente",
         lineas: [linea]
       };
       const res = await fetch(SHEETS_URL, { method:"POST", body: JSON.stringify(payload) });
@@ -521,7 +522,9 @@ function TabCompras() {
           cantidad_compra: cant,
           cantidad_total_unidad_base: Math.round(cant * fac * 100) / 100,
           precio_unitario: l.valor_unitario,
-          importe: l.importe, iva: l.iva || 0, ieps: l.ieps || 0
+          importe: l.importe, iva: l.iva || 0, ieps: l.ieps || 0,
+          pendientes: l.pendientes || [],
+          reconciliar_id: (l.pendientes && l.pendientes.length) ? l.pendientes[0].id_entrada : ""
         };
       }));
     } catch (e) { setErrAuto(e.toString()); }
@@ -571,7 +574,8 @@ function TabCompras() {
           cantidad_compra: l.cantidad_compra,
           cantidad_total_unidad_base: l.cantidad_total_unidad_base || l.cantidad_compra,
           precio_unitario: l.precio_unitario,
-          importe: l.importe, iva: l.iva, total: (parseFloat(l.importe)||0)+(parseFloat(l.iva)||0)
+          importe: l.importe, iva: l.iva, total: (parseFloat(l.importe)||0)+(parseFloat(l.iva)||0),
+          reconciliar_id: l.reconciliar_id || ""
         };
       });
       const payload = {
@@ -581,6 +585,7 @@ function TabCompras() {
         folio_fiscal: (headerRev && headerRev.folio_fiscal) || form.folio_fiscal || "",
         fecha: (headerRev && headerRev.fecha) || form.fecha,
         capturado_por: "Admin",
+        estado_default: "facturado",
         lineas: lineas
       };
       if (facturaFile && /\.pdf$/i.test(facturaFile.name)) { payload.pdf_base64 = await fileToBase64(facturaFile); payload.pdf_filename = facturaFile.name; }
@@ -603,7 +608,7 @@ function TabCompras() {
     h("div", {style:{...C.card, marginBottom:16, border:"1px solid rgba(120,200,80,0.3)"}},
       h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:1.5,marginBottom:10}}, "⚡ CARGA AUTOMÁTICA DESDE FACTURA (XML o PDF)"),
       resAuto && h("div", {style:{padding:12,background:"rgba(80,160,30,0.15)",border:"1px solid rgba(120,200,80,0.3)",borderRadius:9,marginBottom:12,color:"#b8e870",fontSize:13}},
-        "✅ " + resAuto.entradas + " producto(s) agregados a inventario" + (resAuto.creados_catalogo && resAuto.creados_catalogo.length ? " · " + resAuto.creados_catalogo.length + " nuevo(s) en catálogo (" + resAuto.creados_catalogo.map(c=>c.id).join(", ") + ")" : "")),
+        "✅ " + resAuto.entradas + " producto(s) agregados a inventario" + (resAuto.creados_catalogo && resAuto.creados_catalogo.length ? " · " + resAuto.creados_catalogo.length + " nuevo(s) en catálogo (" + resAuto.creados_catalogo.map(c=>c.id).join(", ") + ")" : "") + (resAuto.reconciliadas ? " · 🔗 " + resAuto.reconciliadas + " ticket(s) conciliados con la factura" : "")),
       errAuto && h("div", {style:{padding:12,background:"rgba(200,80,60,0.1)",border:"1px solid rgba(200,80,60,0.3)",borderRadius:9,marginBottom:12,color:"#e08060",fontSize:13}}, "⚠️ " + errAuto),
       !lineasRev && h("div", null,
         h("input", {type:"file",accept:".xml,application/pdf,text/xml",onChange:e=>setFacturaFile(e.target.files[0]||null),style:{...C.inp,padding:"10px",cursor:"pointer"}}),
@@ -619,20 +624,30 @@ function TabCompras() {
             h("div", {style:{fontSize:13,color:"#d8f0b0",fontWeight:600}}, l.descripcion),
             h("div", {style:{fontSize:13,color:"#e8a030",fontWeight:700,whiteSpace:"nowrap"}}, "$" + (Number(l.importe)||0).toLocaleString("es-MX",{minimumFractionDigits:2}))
           ),
-          h("div", {style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
-            h("span", {style:{fontSize:11,color:l.modo==="__NUEVO__"?"#e8a030":"#90c848",whiteSpace:"nowrap"}}, l.modo==="__NUEVO__" ? "➕ Nuevo:" : "✓ Catálogo:"),
-            h("select", {value:l.modo,onChange:e=>cambiarModo(i,e.target.value),style:{...C.inp,flex:1,padding:"6px 10px",fontSize:13,border:l.modo==="__NUEVO__"?"1px solid rgba(240,180,80,0.5)":"1px solid rgba(120,200,80,0.4)"}},
-              h("option", {value:"__NUEVO__"}, "➕ Crear producto nuevo"),
-              catalogo.map(p => h("option", {key:p.id,value:p.id}, p.nombre_comercial))
+          (l.pendientes && l.pendientes.length > 0) && h("div", {style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
+            h("span", {style:{fontSize:11,color:"#6ab0e0",whiteSpace:"nowrap"}}, "🔗 Conciliar:"),
+            h("select", {value:l.reconciliar_id||"",onChange:e=>setLineaRev(i,{reconciliar_id:e.target.value}),style:{...C.inp,flex:1,padding:"6px 10px",fontSize:13,border:l.reconciliar_id?"1px solid rgba(100,180,230,0.55)":"1px solid rgba(255,255,255,0.15)"}},
+              h("option", {value:""}, "No — crear entrada nueva"),
+              l.pendientes.map(p => h("option", {key:p.id_entrada,value:p.id_entrada}, "Ticket " + p.fecha + " (" + p.cantidad_base + " " + p.unidad + ")"))
             )
           ),
-          l.modo==="__NUEVO__" && h("input", {value:l.nombre_producto,onChange:e=>setLineaRev(i,{nombre_producto:e.target.value}),placeholder:"Nombre para el catálogo",style:{...C.inp,marginBottom:8,fontSize:13}}),
-          h("div", {style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1.2fr",gap:8}},
-            h("div", null, h("label", {style:{...lbl,fontSize:10}}, "Cantidad"), h("input", {type:"number",step:"0.01",value:l.cantidad_compra,onChange:e=>setCantFactor(i,"cantidad_compra",e.target.value),style:{...C.inp,padding:"6px 8px",fontSize:13}})),
-            h("div", null, h("label", {style:{...lbl,fontSize:10}}, "Unidad base"), h("select", {value:l.unidad_base,onChange:e=>setLineaRev(i,{unidad_base:e.target.value}),style:{...C.inp,padding:"6px 6px",fontSize:13}},
-              ["L","kg","mL","g","PZA"].map(u => h("option",{key:u,value:u},u)))),
-            h("div", null, h("label", {style:{...lbl,fontSize:10}}, "× Contenido"), h("input", {type:"number",step:"0.01",value:l.factor,onChange:e=>setCantFactor(i,"factor",e.target.value),title:"Cuántos "+l.unidad_base+" trae cada unidad comprada (ej. saco de 10 kg = 10)",style:{...C.inp,padding:"6px 8px",fontSize:13}})),
-            h("div", null, h("label", {style:{...lbl,fontSize:10}}, "= Total "+l.unidad_base), h("input", {type:"number",step:"0.01",value:l.cantidad_total_unidad_base,onChange:e=>setLineaRev(i,{cantidad_total_unidad_base:e.target.value}),style:{...C.inp,padding:"6px 8px",fontSize:13,background:"rgba(80,160,30,0.1)",color:"#90c848",fontWeight:600}}))
+          l.reconciliar_id ? h("div", {style:{fontSize:12,color:"#8ab0c8",background:"rgba(80,140,200,0.1)",border:"1px solid rgba(100,180,230,0.25)",borderRadius:8,padding:"8px 10px"}}, "Se enlazará la factura a tu ticket existente (folio, UUID, precio). No agrega stock nuevo.") :
+          h("div", null,
+            h("div", {style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
+              h("span", {style:{fontSize:11,color:l.modo==="__NUEVO__"?"#e8a030":"#90c848",whiteSpace:"nowrap"}}, l.modo==="__NUEVO__" ? "➕ Nuevo:" : "✓ Catálogo:"),
+              h("select", {value:l.modo,onChange:e=>cambiarModo(i,e.target.value),style:{...C.inp,flex:1,padding:"6px 10px",fontSize:13,border:l.modo==="__NUEVO__"?"1px solid rgba(240,180,80,0.5)":"1px solid rgba(120,200,80,0.4)"}},
+                h("option", {value:"__NUEVO__"}, "➕ Crear producto nuevo"),
+                catalogo.map(p => h("option", {key:p.id,value:p.id}, p.nombre_comercial))
+              )
+            ),
+            l.modo==="__NUEVO__" && h("input", {value:l.nombre_producto,onChange:e=>setLineaRev(i,{nombre_producto:e.target.value}),placeholder:"Nombre para el catálogo",style:{...C.inp,marginBottom:8,fontSize:13}}),
+            h("div", {style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1.2fr",gap:8}},
+              h("div", null, h("label", {style:{...lbl,fontSize:10}}, "Cantidad"), h("input", {type:"number",step:"0.01",value:l.cantidad_compra,onChange:e=>setCantFactor(i,"cantidad_compra",e.target.value),style:{...C.inp,padding:"6px 8px",fontSize:13}})),
+              h("div", null, h("label", {style:{...lbl,fontSize:10}}, "Unidad base"), h("select", {value:l.unidad_base,onChange:e=>setLineaRev(i,{unidad_base:e.target.value}),style:{...C.inp,padding:"6px 6px",fontSize:13}},
+                ["L","kg","mL","g","PZA"].map(u => h("option",{key:u,value:u},u)))),
+              h("div", null, h("label", {style:{...lbl,fontSize:10}}, "× Contenido"), h("input", {type:"number",step:"0.01",value:l.factor,onChange:e=>setCantFactor(i,"factor",e.target.value),title:"Cuántos "+l.unidad_base+" trae cada unidad comprada (ej. saco de 10 kg = 10)",style:{...C.inp,padding:"6px 8px",fontSize:13}})),
+              h("div", null, h("label", {style:{...lbl,fontSize:10}}, "= Total "+l.unidad_base), h("input", {type:"number",step:"0.01",value:l.cantidad_total_unidad_base,onChange:e=>setLineaRev(i,{cantidad_total_unidad_base:e.target.value}),style:{...C.inp,padding:"6px 8px",fontSize:13,background:"rgba(80,160,30,0.1)",color:"#90c848",fontWeight:600}}))
+            )
           )
         )),
         h("div", {style:{display:"flex",gap:10,marginTop:6}},
