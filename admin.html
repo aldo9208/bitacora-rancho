@@ -84,8 +84,114 @@ function Login({onOk}) {
   );
 }
 
+function FormAgregarManual({ onSaved }) {
+  const [open, setOpen] = useState(false);
+  const [cat, setCat] = useState([]);
+  const [modo, setModo] = useState("__NUEVO__");
+  const [nombre, setNombre] = useState("");
+  const [tipo, setTipo] = useState("");
+  const [unidadBase, setUnidadBase] = useState("L");
+  const [cantidad, setCantidad] = useState("");
+  const [factor, setFactor] = useState("1");
+  const [precio, setPrecio] = useState("");
+  const [proveedor, setProveedor] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [err, setErr] = useState(null);
+
+  useEffect(() => {
+    fetch(SHEETS_URL + "?accion=obtener_catalogo").then(r=>r.json()).then(d=>{ if(d.ok) setCat(d.productos||[]); }).catch(()=>{});
+  }, [open]);
+
+  const esNuevo = modo === "__NUEVO__";
+  const totalBase = Math.round((parseFloat(cantidad)||0) * (parseFloat(factor)||1) * 100) / 100;
+
+  const onModo = (val) => {
+    setModo(val);
+    const p = cat.find(x => x.id === val);
+    if (p) {
+      setNombre(p.nombre_comercial || "");
+      setUnidadBase(p.unidad_aplicacion || p.unidad_compra || "L");
+      if (Number(p.factor_conversion) > 0) setFactor(String(p.factor_conversion));
+    }
+  };
+
+  const guardar = async () => {
+    setErr(null); setMsg(null);
+    if (esNuevo && !nombre.trim()) { setErr("Escribe el nombre del producto"); return; }
+    if (!(parseFloat(cantidad) > 0)) { setErr("La cantidad debe ser mayor a 0"); return; }
+    setGuardando(true);
+    try {
+      const importe = Math.round((parseFloat(cantidad)||0) * (parseFloat(precio)||0) * 100) / 100;
+      const linea = {
+        nuevo: esNuevo,
+        id_producto: esNuevo ? "" : modo,
+        nombre_producto: nombre,
+        tipo: tipo,
+        unidad_compra: unidadBase,
+        unidad_aplicacion: unidadBase,
+        factor_conversion: parseFloat(factor) || 1,
+        cantidad_compra: parseFloat(cantidad) || 0,
+        cantidad_total_unidad_base: totalBase,
+        precio_unitario: parseFloat(precio) || 0,
+        importe: importe, iva: 0, total: importe
+      };
+      const payload = {
+        accion: "confirmar_entradas_agro",
+        proveedor: proveedor || "Entrada manual",
+        folio_factura: "", folio_fiscal: "",
+        fecha: new Date().toISOString().slice(0,10),
+        capturado_por: "Admin",
+        notas: "Entrada manual",
+        lineas: [linea]
+      };
+      const res = await fetch(SHEETS_URL, { method:"POST", body: JSON.stringify(payload) });
+      const d = await res.json();
+      if (d.ok) {
+        setMsg((esNuevo ? "Producto creado · " : "") + "Entrada agregada: " + totalBase + " " + unidadBase);
+        setNombre(""); setTipo(""); setCantidad(""); setFactor("1"); setPrecio(""); setProveedor(""); setModo("__NUEVO__");
+        fetch(SHEETS_URL + "?accion=obtener_catalogo").then(r=>r.json()).then(dd=>{ if(dd.ok) setCat(dd.productos||[]); }).catch(()=>{});
+        if (onSaved) onSaved();
+      } else { setErr(d.error || "No se pudo guardar"); }
+    } catch (e) { setErr(e.toString()); }
+    finally { setGuardando(false); }
+  };
+
+  return h("div", {style:{...C.card, marginBottom:16, border:"1px solid rgba(120,200,80,0.3)"}},
+    h("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"},onClick:()=>setOpen(o=>!o)},
+      h("div", {style:{fontSize:13,fontWeight:700,color:"#b8e870"}}, "➕ Agregar producto / entrada manual"),
+      h("div", {style:{fontSize:20,color:"#90c848"}}, open ? "−" : "+")
+    ),
+    open && h("div", {style:{marginTop:14}},
+      msg && h("div", {style:{padding:10,background:"rgba(80,160,30,0.15)",border:"1px solid rgba(120,200,80,0.3)",borderRadius:9,marginBottom:12,color:"#b8e870",fontSize:13}}, "✅ " + msg),
+      err && h("div", {style:{padding:10,background:"rgba(200,80,60,0.1)",border:"1px solid rgba(200,80,60,0.3)",borderRadius:9,marginBottom:12,color:"#e08060",fontSize:13}}, "⚠️ " + err),
+      h("label", {style:lbl}, "Producto"),
+      h("select", {value:modo,onChange:e=>onModo(e.target.value),style:{...C.inp,marginBottom:12}},
+        h("option", {value:"__NUEVO__"}, "➕ Producto nuevo"),
+        cat.map(p => h("option", {key:p.id,value:p.id}, p.nombre_comercial))
+      ),
+      esNuevo && h("div", {style:{display:"grid",gridTemplateColumns:"2fr 1fr",gap:10,marginBottom:12}},
+        h("div", null, h("label", {style:lbl}, "Nombre"), h("input", {value:nombre,onChange:e=>setNombre(e.target.value),placeholder:"Ej: Sivanto Prime",style:C.inp})),
+        h("div", null, h("label", {style:lbl}, "Tipo (opcional)"), h("input", {value:tipo,onChange:e=>setTipo(e.target.value),placeholder:"Insecticida…",style:C.inp}))
+      ),
+      h("div", {style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1.2fr",gap:10,marginBottom:12}},
+        h("div", null, h("label", {style:lbl}, "Cantidad"), h("input", {type:"number",step:"0.01",value:cantidad,onChange:e=>setCantidad(e.target.value),style:C.inp})),
+        h("div", null, h("label", {style:lbl}, "Unidad base"), h("select", {value:unidadBase,onChange:e=>setUnidadBase(e.target.value),style:C.inp}, ["L","kg","mL","g","PZA"].map(u=>h("option",{key:u,value:u},u)))),
+        h("div", null, h("label", {style:lbl}, "× Contenido"), h("input", {type:"number",step:"0.01",value:factor,onChange:e=>setFactor(e.target.value),style:C.inp})),
+        h("div", null, h("label", {style:lbl}, "= Total " + unidadBase), h("div", {style:{...C.inp,background:"rgba(80,160,30,0.1)",color:"#90c848",fontWeight:700,display:"flex",alignItems:"center"}}, totalBase + " " + unidadBase))
+      ),
+      h("div", {style:{display:"grid",gridTemplateColumns:"1fr 2fr",gap:10,marginBottom:12}},
+        h("div", null, h("label", {style:lbl}, "Precio unitario (opc.)"), h("input", {type:"number",step:"0.01",value:precio,onChange:e=>setPrecio(e.target.value),placeholder:"$",style:C.inp})),
+        h("div", null, h("label", {style:lbl}, "Proveedor / nota (opc.)"), h("input", {value:proveedor,onChange:e=>setProveedor(e.target.value),placeholder:"Ej: ajuste de inventario",style:C.inp}))
+      ),
+      h("button", {onClick:guardar,disabled:guardando,style:{...C.bigBtn,opacity:guardando?0.6:1,cursor:guardando?"wait":"pointer"}}, guardando ? "⏳ Guardando…" : "💾 Agregar a inventario")
+    )
+  );
+}
+
 function TabDashboard() {
-  const {data, loading, error} = useFetch(SHEETS_URL + "?accion=obtener_inventario");
+  const [refresh, setRefresh] = useState(0);
+  const {data, loading, error} = useFetch(SHEETS_URL + "?accion=obtener_inventario", [refresh]);
   const inventario = (data && data.inventario) || [];
   const totalValor = inventario.reduce((s,p)=>s+Number(p.valor_inventario||0),0);
   const negativos = inventario.filter(p => Number(p.stock_actual||0) < 0).length;
@@ -94,6 +200,7 @@ function TabDashboard() {
       h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:2,marginBottom:4}}, "INVENTARIO"),
       h("div", {style:{fontSize:22,fontWeight:700,color:"#b8e870"}}, "Agroquímicos")
     ),
+    h(FormAgregarManual, { onSaved: () => setRefresh(r => r + 1) }),
     h("div", {className:"grid3",style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:18}},
       h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "PRODUCTOS"), h("div", {style:{fontSize:28,fontWeight:800,color:"#b8e870"}}, inventario.length)),
       h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "VALOR INVENTARIO"), h("div", {style:{fontSize:22,fontWeight:800,color:"#e8a030"}}, fmtMXN(totalValor))),
