@@ -425,6 +425,7 @@ function TabCompras() {
   const [confirmando, setConfirmando] = useState(false);
   const [resAuto, setResAuto] = useState(null);
   const [errAuto, setErrAuto] = useState(null);
+  const [pendientesAll, setPendientesAll] = useState([]);
 
   useEffect(() => {
     fetch(SHEETS_URL + "?accion=obtener_catalogo").then(r => r.json()).then(d => { if (d.ok) setCatalogo(d.productos || []); }).catch(()=>{});
@@ -507,6 +508,7 @@ function TabCompras() {
       const d = await res.json();
       if (!d.ok) { setErrAuto(d.error || "No se pudo leer la factura"); setParseando(false); return; }
       setHeaderRev(d.header || {});
+      setPendientesAll(d.pendientes_all || []);
       setLineasRev((d.lineas || []).map(l => {
         const cat = l.match_id ? catalogo.find(x => x.id === l.match_id) : null;
         const uBase = cat && cat.unidad_aplicacion ? cat.unidad_aplicacion : (cat && cat.unidad_compra ? cat.unidad_compra : guessUnidad(l.descripcion, l.unidad));
@@ -535,6 +537,7 @@ function TabCompras() {
 
   const cambiarModo = (i, val) => {
     const cat = catalogo.find(x => x.id === val);
+    const pend = (pendientesAll||[]).filter(p => String(p.id_producto) === String(val));
     setLineasRev(prev => prev.map((l,idx) => {
       if (idx !== i) return l;
       const next = { ...l, modo: val };
@@ -543,6 +546,7 @@ function TabCompras() {
         if (Number(cat.factor_conversion) > 0) next.factor = Number(cat.factor_conversion);
         next.nombre_producto = cat.nombre_comercial;
       }
+      next.reconciliar_id = pend.length ? pend[0].id_entrada : "";
       next.cantidad_total_unidad_base = Math.round((Number(next.cantidad_compra)||0) * (Number(next.factor)||1) * 100) / 100;
       return next;
     }));
@@ -619,16 +623,16 @@ function TabCompras() {
       lineasRev && h("div", null,
         headerRev && h("div", {style:{fontSize:13,color:"#c8e898",marginBottom:12,paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.06)"}},
           (headerRev.proveedor||"—") + " · " + (headerRev.folio_factura||"") + " · " + (headerRev.fecha||"") + " · Total $" + (Number(headerRev.total)||0).toLocaleString("es-MX",{minimumFractionDigits:2})),
-        lineasRev.map((l,i) => h("div", {key:i, style:{padding:10,marginBottom:8,background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:9}},
+        lineasRev.map((l,i) => { const cands = (pendientesAll||[]).filter(p => l.modo && l.modo!=="__NUEVO__" && String(p.id_producto)===String(l.modo)); return h("div", {key:i, style:{padding:10,marginBottom:8,background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:9}},
           h("div", {style:{display:"flex",justifyContent:"space-between",gap:8,marginBottom:8}},
             h("div", {style:{fontSize:13,color:"#d8f0b0",fontWeight:600}}, l.descripcion),
             h("div", {style:{fontSize:13,color:"#e8a030",fontWeight:700,whiteSpace:"nowrap"}}, "$" + (Number(l.importe)||0).toLocaleString("es-MX",{minimumFractionDigits:2}))
           ),
-          (l.pendientes && l.pendientes.length > 0) && h("div", {style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
+          (cands.length > 0) && h("div", {style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
             h("span", {style:{fontSize:11,color:"#6ab0e0",whiteSpace:"nowrap"}}, "🔗 Conciliar:"),
             h("select", {value:l.reconciliar_id||"",onChange:e=>setLineaRev(i,{reconciliar_id:e.target.value}),style:{...C.inp,flex:1,padding:"6px 10px",fontSize:13,border:l.reconciliar_id?"1px solid rgba(100,180,230,0.55)":"1px solid rgba(255,255,255,0.15)"}},
               h("option", {value:""}, "No — crear entrada nueva"),
-              l.pendientes.map(p => h("option", {key:p.id_entrada,value:p.id_entrada}, "Ticket " + p.fecha + " (" + p.cantidad_base + " " + p.unidad + ")"))
+              cands.map(p => h("option", {key:p.id_entrada,value:p.id_entrada}, "Ticket " + p.fecha + " (" + p.cantidad_base + " " + p.unidad + ")"))
             )
           ),
           l.reconciliar_id ? h("div", {style:{fontSize:12,color:"#8ab0c8",background:"rgba(80,140,200,0.1)",border:"1px solid rgba(100,180,230,0.25)",borderRadius:8,padding:"8px 10px"}}, "Se enlazará la factura a tu ticket existente (folio, UUID, precio). No agrega stock nuevo.") :
@@ -649,7 +653,7 @@ function TabCompras() {
               h("div", null, h("label", {style:{...lbl,fontSize:10}}, "= Total "+l.unidad_base), h("input", {type:"number",step:"0.01",value:l.cantidad_total_unidad_base,onChange:e=>setLineaRev(i,{cantidad_total_unidad_base:e.target.value}),style:{...C.inp,padding:"6px 8px",fontSize:13,background:"rgba(80,160,30,0.1)",color:"#90c848",fontWeight:600}}))
             )
           )
-        )),
+        ); }),
         h("div", {style:{display:"flex",gap:10,marginTop:6}},
           h("button", {onClick:()=>{setLineasRev(null);setHeaderRev(null);},style:{...C.inp,flex:"0 0 auto",padding:"12px 16px",cursor:"pointer",color:"#9ab080",background:"transparent",width:"auto"}}, "Cancelar"),
           h("button", {onClick:confirmarAuto,disabled:confirmando,style:{...C.bigBtn,flex:1,opacity:confirmando?0.6:1,cursor:confirmando?"wait":"pointer"}}, confirmando ? "⏳ Agregando…" : "✅ Confirmar y agregar a inventario")
