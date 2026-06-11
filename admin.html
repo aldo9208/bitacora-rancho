@@ -291,7 +291,9 @@ function TabActividades() {
 }
 
 function TabAplicaciones() {
-  const {data, loading, error} = useFetch(SHEETS_URL + "?accion=obtener_aplicaciones");
+  const [reload, setReload] = useState(0);
+  const [busy, setBusy] = useState("");
+  const {data, loading, error} = useFetch(SHEETS_URL + "?accion=obtener_aplicaciones", [reload]);
   const aplicaciones = (data && data.aplicaciones) || [];
   const [filtroProducto, setFiltroProducto] = useState("");
   const [filtroRancho, setFiltroRancho] = useState("");
@@ -303,6 +305,30 @@ function TabAplicaciones() {
     return true;
   });
   const totalCosto = filtradas.reduce((s,a) => s + Number(a.costo_total||0), 0);
+
+  async function accionAplic(id, accion, extra) {
+    if (busy) return;
+    setBusy(id);
+    try {
+      const url = SHEETS_URL + "?accion=" + accion + "&id=" + encodeURIComponent(id) + (extra||"");
+      const res = await fetch(url);
+      const d = await res.json();
+      if (d.ok) setReload(x=>x+1);
+      else alert("No se pudo: " + (d.error||"error"));
+    } catch(e) { alert("Error: " + e); }
+    setBusy("");
+  }
+  function anular(a) {
+    if (!confirm("¿Anular la aplicación de " + (a.nombre_producto||"") + " (" + fmtNum(a.cantidad_aplicada) + " " + (a.unidad||"") + ")? El inventario se recalcula. La fila se marca ANULADA, no se borra.")) return;
+    accionAplic(a.id_aplicacion, "anular_aplicacion", "&motivo=" + encodeURIComponent("anulada desde admin"));
+  }
+  function corregir(a) {
+    const v = prompt("Nueva cantidad aplicada de " + (a.nombre_producto||"") + " (" + (a.unidad||"") + "):", a.cantidad_aplicada);
+    if (v === null) return;
+    const n = parseFloat(String(v).replace(",","."));
+    if (isNaN(n) || n < 0) { alert("Cantidad inválida"); return; }
+    accionAplic(a.id_aplicacion, "corregir_aplicacion", "&cantidad=" + n);
+  }
 
   return h("div", null,
     h("div", {style:{marginBottom:18}},
@@ -334,7 +360,9 @@ function TabAplicaciones() {
         h("div", {style:{flex:1,minWidth:0}},
           h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1,marginBottom:2}}, fmtFecha(a.fecha) + " · " + (a.id_aplicacion||"")),
           h("div", {style:{fontSize:14,fontWeight:700,color:"#c8e898"}}, a.nombre_producto||"—"),
-          h("div", {style:{fontSize:12,color:"#a0c870",marginTop:2}}, a.rancho||"")
+          h("div", {style:{fontSize:12,color:"#a0c870",marginTop:2}}, a.rancho||""),
+          (String(a.notas||"").indexOf("ANULADA")>=0) && h("div", {style:{fontSize:10,color:"#e89070",marginTop:2,fontWeight:700}}, "● ANULADA"),
+          (String(a.notas||"").indexOf("CORREGIDA")>=0) && h("div", {style:{fontSize:10,color:"#c8a030",marginTop:2,fontWeight:700}}, "● CORREGIDA")
         ),
         h("div", {style:{textAlign:"right"}},
           h("div", {style:{fontSize:15,fontWeight:700,color:"#e8a030"}}, fmtNum(a.cantidad_aplicada) + " " + (a.unidad||"")),
@@ -344,7 +372,11 @@ function TabAplicaciones() {
       h("div", {style:{fontSize:11,color:"#7a9058",marginTop:6,paddingTop:6,borderTop:"1px solid rgba(255,255,255,0.05)"}},
         (a.actividad || "") + (a.aplicador ? " · " + a.aplicador : "") + (a.clima ? " · " + a.clima : "") + (a.volumen_mezcla_total ? " · Mezcla " + a.volumen_mezcla_total + "L" : "")
       ),
-      a.plaga_objetivo && h("div", {style:{fontSize:11,color:"#9a8068",marginTop:3,fontStyle:"italic"}}, "🎯 " + a.plaga_objetivo)
+      a.plaga_objetivo && h("div", {style:{fontSize:11,color:"#9a8068",marginTop:3,fontStyle:"italic"}}, "🎯 " + a.plaga_objetivo),
+      h("div", {style:{display:"flex",gap:8,marginTop:8,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+        h("button", {onClick:()=>corregir(a),disabled:busy===a.id_aplicacion,style:{padding:"6px 12px",background:"rgba(120,160,80,0.15)",border:"1px solid rgba(120,160,80,0.4)",borderRadius:8,color:"#b8e870",fontSize:12,fontWeight:600,cursor:"pointer"}}, "✏️ Corregir cantidad"),
+        h("button", {onClick:()=>anular(a),disabled:busy===a.id_aplicacion,style:{padding:"6px 12px",background:"rgba(200,80,60,0.15)",border:"1px solid rgba(200,80,60,0.4)",borderRadius:8,color:"#e89070",fontSize:12,fontWeight:600,cursor:"pointer"}}, busy===a.id_aplicacion ? "Procesando…" : "🚫 Anular")
+      )
     ))
   );
 }
