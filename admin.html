@@ -380,6 +380,14 @@ function TabAplicaciones() {
     accionAplic(a.id_aplicacion, "corregir_aplicacion", "&cantidad=" + n);
   }
 
+  const grupos = [];
+  const idxGrupo = {};
+  filtradas.forEach(a => {
+    const k = a.id_actividad || a.id_aplicacion;
+    if (idxGrupo[k] === undefined) { idxGrupo[k] = grupos.length; grupos.push({ key:String(k), items:[] }); }
+    grupos[idxGrupo[k]].items.push(a);
+  });
+
   return h("div", null,
     h("div", {style:{marginBottom:18}},
       h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:2,marginBottom:4}}, "BITÁCORA"),
@@ -405,29 +413,47 @@ function TabAplicaciones() {
     loading && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30}}, "Cargando…"),
     error && h("div", {style:{color:"#e08060",padding:14,background:"rgba(200,80,60,0.1)",borderRadius:10}}, "Error: " + error),
     !loading && filtradas.length === 0 && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30,fontStyle:"italic"}}, "Sin aplicaciones registradas"),
-    !loading && filtradas.map((a,i) => h("div", {key:i,style:C.card},
-      h("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6,flexWrap:"wrap",gap:6}},
-        h("div", {style:{flex:1,minWidth:0}},
-          h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1,marginBottom:2}}, fmtFecha(a.fecha) + " · " + (a.id_aplicacion||"")),
-          h("div", {style:{fontSize:14,fontWeight:700,color:"#c8e898"}}, a.nombre_producto||"—"),
-          h("div", {style:{fontSize:12,color:"#a0c870",marginTop:2}}, a.rancho||""),
-          (String(a.notas||"").indexOf("ANULADA")>=0) && h("div", {style:{fontSize:10,color:"#e89070",marginTop:2,fontWeight:700}}, "● ANULADA"),
-          (String(a.notas||"").indexOf("CORREGIDA")>=0) && h("div", {style:{fontSize:10,color:"#c8a030",marginTop:2,fontWeight:700}}, "● CORREGIDA")
+    !loading && grupos.map((g,gi) => {
+      const ref = g.items[0];
+      const costoGrupo = g.items.reduce((s,x)=>s+Number(x.costo_total||0),0);
+      const esMezcla = g.items.length > 1;
+      return h("div", {key:g.key||gi,style:C.card},
+        h("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8,flexWrap:"wrap",gap:6}},
+          h("div", {style:{flex:1,minWidth:0}},
+            h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1,marginBottom:2}}, fmtFecha(ref.fecha)),
+            esMezcla
+              ? h("div", {style:{fontSize:14,fontWeight:700,color:"#b8e870"}}, "🧪 Mezcla — " + g.items.length + " productos")
+              : h("div", {style:{fontSize:14,fontWeight:700,color:"#c8e898"}}, ref.nombre_producto||"—"),
+            h("div", {style:{fontSize:12,color:"#a0c870",marginTop:2}}, ref.rancho||"")
+          ),
+          h("div", {style:{textAlign:"right"}},
+            h("div", {style:{fontSize:15,fontWeight:700,color:"#e8a030"}}, fmtMXN(costoGrupo)),
+            ref.volumen_mezcla_total && h("div", {style:{fontSize:11,color:"#8aa870",marginTop:2}}, "Mezcla " + ref.volumen_mezcla_total + "L")
+          )
         ),
-        h("div", {style:{textAlign:"right"}},
-          h("div", {style:{fontSize:15,fontWeight:700,color:"#e8a030"}}, fmtNum(a.cantidad_aplicada) + " " + (a.unidad||"")),
-          h("div", {style:{fontSize:12,color:"#c8a030"}}, fmtMXN(a.costo_total))
-        )
-      ),
-      h("div", {style:{fontSize:11,color:"#7a9058",marginTop:6,paddingTop:6,borderTop:"1px solid rgba(255,255,255,0.05)"}},
-        (a.actividad || "") + (a.aplicador ? " · " + a.aplicador : "") + (a.clima ? " · " + a.clima : "") + (a.volumen_mezcla_total ? " · Mezcla " + a.volumen_mezcla_total + "L" : "")
-      ),
-      a.plaga_objetivo && h("div", {style:{fontSize:11,color:"#9a8068",marginTop:3,fontStyle:"italic"}}, "🎯 " + a.plaga_objetivo),
-      h("div", {style:{display:"flex",gap:8,marginTop:8,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.05)"}},
-        h("button", {onClick:()=>corregir(a),disabled:busy===a.id_aplicacion,style:{padding:"6px 12px",background:"rgba(120,160,80,0.15)",border:"1px solid rgba(120,160,80,0.4)",borderRadius:8,color:"#b8e870",fontSize:12,fontWeight:600,cursor:"pointer"}}, "✏️ Corregir cantidad"),
-        h("button", {onClick:()=>anular(a),disabled:busy===a.id_aplicacion,style:{padding:"6px 12px",background:"rgba(200,80,60,0.15)",border:"1px solid rgba(200,80,60,0.4)",borderRadius:8,color:"#e89070",fontSize:12,fontWeight:600,cursor:"pointer"}}, busy===a.id_aplicacion ? "Procesando…" : "🚫 Anular")
-      )
-    ))
+        h("div", {style:{fontSize:11,color:"#7a9058",marginBottom:6,paddingBottom:8,borderBottom:"1px solid rgba(255,255,255,0.06)"}},
+          (ref.actividad || "") + (ref.aplicador ? " · " + ref.aplicador : "") + (ref.clima ? " · " + ref.clima : "") + (ref.plaga_objetivo ? " · 🎯 " + ref.plaga_objetivo : "")
+        ),
+        g.items.map((a,j) => h("div", {key:j,style:{paddingTop:j>0?8:0,marginTop:j>0?8:0,borderTop:j>0?"1px solid rgba(255,255,255,0.05)":"none"}},
+          h("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,flexWrap:"wrap"}},
+            h("div", {style:{flex:1,minWidth:0}},
+              esMezcla && h("div", {style:{fontSize:13,fontWeight:600,color:"#c8e898"}}, a.nombre_producto||"—"),
+              h("div", {style:{fontSize:10,color:"#6a9050"}}, a.id_aplicacion||""),
+              (String(a.notas||"").indexOf("ANULADA")>=0) && h("span", {style:{fontSize:10,color:"#e89070",fontWeight:700,marginRight:8}}, "● ANULADA"),
+              (String(a.notas||"").indexOf("CORREGIDA")>=0) && h("span", {style:{fontSize:10,color:"#c8a030",fontWeight:700}}, "● CORREGIDA")
+            ),
+            h("div", {style:{textAlign:"right"}},
+              h("div", {style:{fontSize:14,fontWeight:700,color:"#e8a030"}}, fmtNum(a.cantidad_aplicada) + " " + (a.unidad||"")),
+              h("div", {style:{fontSize:11,color:"#c8a030"}}, fmtMXN(a.costo_total))
+            )
+          ),
+          h("div", {style:{display:"flex",gap:8,marginTop:6}},
+            h("button", {onClick:()=>corregir(a),disabled:busy===a.id_aplicacion,style:{padding:"4px 10px",background:"rgba(120,160,80,0.15)",border:"1px solid rgba(120,160,80,0.4)",borderRadius:7,color:"#b8e870",fontSize:11,fontWeight:600,cursor:"pointer"}}, "✏️ Corregir"),
+            h("button", {onClick:()=>anular(a),disabled:busy===a.id_aplicacion,style:{padding:"4px 10px",background:"rgba(200,80,60,0.15)",border:"1px solid rgba(200,80,60,0.4)",borderRadius:7,color:"#e89070",fontSize:11,fontWeight:600,cursor:"pointer"}}, busy===a.id_aplicacion ? "…" : "🚫 Anular")
+          )
+        ))
+      );
+    })
   );
 }
 
