@@ -231,8 +231,38 @@ function TabActividades() {
   const [mes, setMes] = useState(MESES[ahora.getMonth()] + " " + ahora.getFullYear());
   const [filtroRancho, setFiltroRancho] = useState("");
   const [filtroDia, setFiltroDia] = useState("");
-  const {data, loading, error} = useFetch(SHEETS_URL + "?accion=obtener_actividades&mes=" + encodeURIComponent(mes), [mes]);
+  const [reload, setReload] = useState(0);
+  const [editId, setEditId] = useState(null);
+  const [editSemana, setEditSemana] = useState("");
+  const [editJorn, setEditJorn] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const {data, loading, error} = useFetch(SHEETS_URL + "?accion=obtener_actividades&mes=" + encodeURIComponent(mes), [mes, reload]);
   const actividades = (data && data.actividades) || [];
+  function parseJorn(str){
+    return String(str||"").split(",").map(function(p){
+      var m = p.trim().match(/^(.+?)\s*\$([\d,]+)$/);
+      if(m) return {nombre:m[1].trim(), pago:Number(m[2].replace(/,/g,""))||0};
+      var t = p.trim(); return t ? {nombre:t, pago:0} : null;
+    }).filter(Boolean);
+  }
+  function abrirEdit(a){
+    setEditId(a.ID);
+    const sm = String(a.Semana||"").match(/\d+/);
+    setEditSemana(sm ? sm[0] : "");
+    setEditJorn(parseJorn(a.Jornaleros));
+  }
+  async function guardarEdit(a){
+    if(busy) return;
+    setBusy(true);
+    try{
+      const jorn = editJorn.map(j => ({nombre:j.nombre, pago:Number(String(j.pago).replace(/[^0-9.]/g,""))||0}));
+      const url = SHEETS_URL + "?accion=editar_actividad&mes=" + encodeURIComponent(mes) + "&id=" + encodeURIComponent(a.ID) + "&semana=" + encodeURIComponent(editSemana) + "&jornaleros=" + encodeURIComponent(JSON.stringify(jorn));
+      const d = await (await fetch(url)).json();
+      if(d.ok){ setEditId(null); setReload(x=>x+1); }
+      else alert("No se pudo: " + (d.error||"error"));
+    }catch(e){ alert("Error: " + e); }
+    setBusy(false);
+  }
   const mesesOpciones = [];
   for (let i = 0; i < 6; i++) { const d = new Date(ahora.getFullYear(), ahora.getMonth() - i, 1); mesesOpciones.push(MESES[d.getMonth()] + " " + d.getFullYear()); }
   const ranchos = [...new Set(actividades.map(a => a.Lugar).filter(Boolean))];
@@ -285,7 +315,27 @@ function TabActividades() {
         h("div", {style:{fontSize:15,fontWeight:700,color:"#e8a030",whiteSpace:"nowrap"}}, fmtMXN(a["Raya total"]))
       ),
       a.Jornaleros && h("div", {style:{fontSize:12,color:"#8aa870",marginTop:6,paddingTop:6,borderTop:"1px solid rgba(255,255,255,0.05)"}}, a.Jornaleros),
-      a.Nota && h("div", {style:{fontSize:11,color:"#7a9058",marginTop:4,fontStyle:"italic"}}, "* " + a.Nota)
+      a.Nota && h("div", {style:{fontSize:11,color:"#7a9058",marginTop:4,fontStyle:"italic"}}, "* " + a.Nota),
+      editId !== a.ID && h("div", {style:{marginTop:8}},
+        h("button", {onClick:()=>abrirEdit(a),style:{padding:"6px 12px",background:"rgba(120,160,80,0.15)",border:"1px solid rgba(120,160,80,0.4)",borderRadius:8,color:"#b8e870",fontSize:12,fontWeight:600,cursor:"pointer"}}, "✏️ Editar")
+      ),
+      editId === a.ID && h("div", {style:{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(120,160,80,0.25)"}},
+        h("div", {style:{display:"flex",alignItems:"center",gap:8,marginBottom:12}},
+          h("label", {style:{fontSize:11,color:"#6a9050",letterSpacing:1}}, "SEMANA #"),
+          h("input", {type:"number",value:editSemana,onChange:e=>setEditSemana(e.target.value),style:{...C.inp,maxWidth:90,padding:"6px 8px"}})
+        ),
+        h("div", {style:{fontSize:10,color:"#5a7a40",letterSpacing:1.5,marginBottom:8}}, "PAGOS POR JORNALERO"),
+        editJorn.map((j,idx) => h("div", {key:idx,style:{display:"flex",alignItems:"center",gap:8,marginBottom:6}},
+          h("div", {style:{flex:1,fontSize:13,color:"#c8e898"}}, j.nombre),
+          h("span", {style:{color:"#c8a030",fontWeight:700}}, "$"),
+          h("input", {type:"number",value:j.pago,onChange:e=>{const v=e.target.value;setEditJorn(prev=>prev.map((x,k)=>k===idx?{...x,pago:v}:x));},style:{...C.inp,maxWidth:130,padding:"6px 8px"}})
+        )),
+        h("div", {style:{fontSize:12,color:"#c8a030",marginTop:6,fontWeight:700}}, "Nueva raya: " + fmtMXN(editJorn.reduce((s,j)=>s+(Number(String(j.pago).replace(/[^0-9.]/g,""))||0),0))),
+        h("div", {style:{display:"flex",gap:8,marginTop:12}},
+          h("button", {onClick:()=>guardarEdit(a),disabled:busy,style:{...C.bigBtn,padding:"8px 16px",fontSize:13}}, busy?"Guardando…":"✅ Guardar cambios"),
+          h("button", {onClick:()=>setEditId(null),disabled:busy,style:{padding:"8px 16px",background:"rgba(150,150,150,0.15)",border:"1px solid rgba(150,150,150,0.3)",borderRadius:8,color:"#aaa",fontSize:13,cursor:"pointer"}}, "Cancelar")
+        )
+      )
     ))
   );
 }
