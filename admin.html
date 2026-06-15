@@ -1827,8 +1827,12 @@ function TabPolizasAgro() {
   const [reload, setReload] = useState(0);
   const [busy, setBusy] = useState("");
   const [estado, setEstado] = useState({});
+  const [vista, setVista] = useState("contabilizar");
+  const [reloadP, setReloadP] = useState(0);
   const {data, loading, error} = useFetch(SHEETS_URL + "?accion=facturas_agro_pendientes", [reload]);
   const facturas = (data && data.facturas) || [];
+  const porPagar = useFetch(SHEETS_URL + "?accion=facturas_agro_por_pagar", [reloadP]);
+  const facturasPagar = (porPagar.data && porPagar.data.facturas) || [];
   useEffect(() => {
     if (!facturas.length) return;
     setEstado(prev => {
@@ -1867,21 +1871,56 @@ function TabPolizasAgro() {
       else alert("No se pudo abrir la carpeta: " + (d.error || "sin carpeta configurada"));
     } catch(e){ alert("Error: " + e); }
   }
+  async function pagar(f){
+    if (busy) return;
+    if (!confirm("¿Registrar el pago de la factura " + (f.folio||"") + " por " + fmtMXN(f.total) + "? Genera la póliza de Egresos (pago a banco)" + (f.metodo==="PPD"?" y reclasifica el IVA":"") + ".")) return;
+    setBusy(f.uuid);
+    try {
+      const d = await (await fetch(SHEETS_URL + "?accion=pagar_factura_agro&uuid=" + encodeURIComponent(f.uuid))).json();
+      if (d.ok){ alert("✅ Pago registrado: " + d.numero_poliza + (d.iva_reclasificado>0?" · IVA reclasificado " + fmtMXN(d.iva_reclasificado):"")); setReloadP(x=>x+1); }
+      else alert("No se pudo: " + (d.error||"error"));
+    } catch(err){ alert("Error: " + err); }
+    setBusy("");
+  }
+  const vistaBtn = (activo) => ({flex:1,padding:"10px",borderRadius:9,fontSize:13,fontWeight:700,cursor:"pointer",border:"1px solid " + (activo?"rgba(120,180,60,0.6)":"rgba(255,255,255,0.12)"),background:activo?"rgba(120,180,60,0.18)":"rgba(255,255,255,0.03)",color:activo?"#c8f090":"#7a9058"});
   const tipoBtn = (activo) => ({padding:"4px 10px",borderRadius:7,fontSize:11,fontWeight:600,cursor:"pointer",border:"1px solid " + (activo?"rgba(120,180,60,0.6)":"rgba(255,255,255,0.12)"),background:activo?"rgba(120,180,60,0.22)":"transparent",color:activo?"#c8f090":"#7a9058"});
   return h("div", null,
     h("div", {style:{marginBottom:14}},
       h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:2,marginBottom:4}}, "CONTABILIDAD"),
       h("div", {style:{fontSize:22,fontWeight:700,color:"#b8e870"}}, "Pólizas de agroquímicos")
     ),
-    h("div", {style:{fontSize:12,color:"#8aa870",background:"rgba(120,160,80,0.08)",border:"1px solid rgba(120,160,80,0.2)",borderRadius:10,padding:"10px 12px",marginBottom:16}},
+    h("div", {style:{display:"flex",gap:8,marginBottom:16}},
+      h("button", {onClick:()=>setVista("contabilizar"),style:vistaBtn(vista==="contabilizar")}, "📝 Por contabilizar"),
+      h("button", {onClick:()=>setVista("pagar"),style:vistaBtn(vista==="pagar")}, "💵 Por pagar")
+    ),
+    vista==="pagar" && h("div", null,
+      h("div", {style:{fontSize:12,color:"#8aa870",background:"rgba(80,140,200,0.08)",border:"1px solid rgba(80,140,200,0.2)",borderRadius:10,padding:"10px 12px",marginBottom:16}},
+        "Registra el pago de cada factura ya contabilizada: genera la póliza de Egresos (pago a banco) y, si era PPD, reclasifica el IVA a acreditable."),
+      porPagar.loading && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30}}, "Cargando…"),
+      !porPagar.loading && facturasPagar.length===0 && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30,fontStyle:"italic"}}, "No hay facturas pendientes de pago 🎉"),
+      !porPagar.loading && facturasPagar.map((f,fi) => h("div", {key:f.uuid||fi,style:C.card},
+        h("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8,marginBottom:10}},
+          h("div", {style:{flex:1,minWidth:0}},
+            h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1}}, fmtFecha(f.fecha) + " · " + (f.folio||"")),
+            h("div", {style:{fontSize:15,fontWeight:700,color:"#c8e898"}}, f.proveedor||"—"),
+            h("span", {style:{display:"inline-block",marginTop:4,fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:6,background:f.metodo==="PPD"?"rgba(200,160,40,0.2)":"rgba(80,160,80,0.2)",color:f.metodo==="PPD"?"#e8c050":"#90d090"}}, f.metodo)
+          ),
+          h("div", {style:{textAlign:"right"}},
+            h("div", {style:{fontSize:16,fontWeight:800,color:"#e8a030"}}, fmtMXN(f.total))
+          )
+        ),
+        h("button", {onClick:()=>pagar(f),disabled:busy===f.uuid,style:{...C.bigBtn,padding:"10px 18px",fontSize:14,opacity:busy===f.uuid?0.6:1}}, busy===f.uuid?"Registrando…":"💵 Registrar pago")
+      ))
+    ),
+    vista==="contabilizar" && h("div", {style:{fontSize:12,color:"#8aa870",background:"rgba(120,160,80,0.08)",border:"1px solid rgba(120,160,80,0.2)",borderRadius:10,padding:"10px 12px",marginBottom:16}},
       "Genera la póliza Dr de cada factura recibida. El CSV para COI se descarga en ⛽ Combustible → 📄 Pólizas para COI (todas las pólizas del rancho juntas)."),
-    h("div", {style:{marginBottom:16}},
+    vista==="contabilizar" && h("div", {style:{marginBottom:16}},
       h("button", {onClick:abrirXmlMes,style:{padding:"10px 16px",background:"rgba(80,140,200,0.15)",border:"1px solid rgba(80,140,200,0.4)",borderRadius:9,color:"#9cc8f0",fontSize:13,fontWeight:600,cursor:"pointer"}}, "📁 Abrir carpeta de XML del mes (para COI)")
     ),
-    loading && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30}}, "Cargando…"),
-    error && h("div", {style:{color:"#e08060",padding:14}}, "Error: " + error),
-    !loading && facturas.length===0 && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30,fontStyle:"italic"}}, "No hay facturas pendientes de contabilizar 🎉"),
-    !loading && facturas.map((f,fi) => {
+    vista==="contabilizar" && loading && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30}}, "Cargando…"),
+    vista==="contabilizar" && error && h("div", {style:{color:"#e08060",padding:14}}, "Error: " + error),
+    vista==="contabilizar" && !loading && facturas.length===0 && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30,fontStyle:"italic"}}, "No hay facturas pendientes de contabilizar 🎉"),
+    vista==="contabilizar" && !loading && facturas.map((f,fi) => {
       const e = estado[f.uuid] || {metodo:"PPD",clasif:{}};
       return h("div", {key:f.uuid||fi,style:C.card},
         h("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8,marginBottom:10}},
