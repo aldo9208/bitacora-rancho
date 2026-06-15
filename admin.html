@@ -534,6 +534,7 @@ function TabCompras() {
   const [resAuto, setResAuto] = useState(null);
   const [errAuto, setErrAuto] = useState(null);
   const [pendientesAll, setPendientesAll] = useState([]);
+  const [xmlB64, setXmlB64] = useState(null);
 
   useEffect(() => {
     fetch(SHEETS_URL + "?accion=obtener_catalogo").then(r => r.json()).then(d => { if (d.ok) setCatalogo(d.productos || []); }).catch(()=>{});
@@ -609,6 +610,7 @@ function TabCompras() {
     try {
       const esXml = /\.xml$/i.test(facturaFile.name);
       const b64 = await fileToBase64(facturaFile);
+      setXmlB64(esXml ? b64 : null);
       const payload = esXml
         ? { accion: "procesar_factura_agro", xml_base64: b64 }
         : { accion: "procesar_factura_agro_pdf", pdf_base64: b64 };
@@ -705,6 +707,12 @@ function TabCompras() {
       const d = await res.json();
       if (d.ok) {
         setResAuto(d);
+        if (xmlB64) {
+          fetch(SHEETS_URL, { method: "POST", body: JSON.stringify({ accion: "guardar_xml_agro", xml_base64: xmlB64,
+            folio: (headerRev && headerRev.folio_factura) || "", uuid: (headerRev && headerRev.folio_fiscal) || "",
+            fecha: (headerRev && headerRev.fecha) || form.fecha }) }).catch(()=>{});
+        }
+        setXmlB64(null);
         setLineasRev(null); setHeaderRev(null); setFacturaFile(null);
         fetch(SHEETS_URL + "?accion=obtener_catalogo").then(r=>r.json()).then(dd=>{ if(dd.ok) setCatalogo(dd.productos||[]); }).catch(()=>{});
       } else { setErrAuto(d.error || "Error al confirmar"); }
@@ -1785,6 +1793,7 @@ function App() {
     {id:"dashboard",   label:"📦 Inventario"},
     {id:"combustible", label:"⛽ Combustible"},
     {id:"compras",     label:"🧾 Capturar compra"},
+    {id:"polizas_agro",label:"📒 Pólizas agro"},
   ];
   return h("div", {style:{background:"#0e1a0a",minHeight:"100vh"}},
     h("div", {style:C.hdr},
@@ -1808,8 +1817,103 @@ function App() {
       tab === "aplicaciones"&& h(TabAplicaciones),
       tab === "dashboard"   && h(TabDashboard),
       tab === "combustible" && h(TabCombustible),
-      tab === "compras"     && h(TabCompras)
+      tab === "compras"     && h(TabCompras),
+      tab === "polizas_agro"&& h(TabPolizasAgro)
     )
+  );
+}
+
+function TabPolizasAgro() {
+  const [reload, setReload] = useState(0);
+  const [busy, setBusy] = useState("");
+  const [estado, setEstado] = useState({});
+  const {data, loading, error} = useFetch(SHEETS_URL + "?accion=facturas_agro_pendientes", [reload]);
+  const facturas = (data && data.facturas) || [];
+  useEffect(() => {
+    if (!facturas.length) return;
+    setEstado(prev => {
+      const next = {...prev};
+      facturas.forEach(f => {
+        if (!next[f.uuid]) {
+          const clasif = {};
+          f.lineas.forEach(l => { clasif[l.id_producto] = l.sugerido || "agroquimico"; });
+          next[f.uuid] = { metodo:"PPD", clasif };
+        }
+      });
+      return next;
+    });
+  }, [data]);
+  function setMetodo(uuid, metodo){ setEstado(prev => ({...prev, [uuid]:{...(prev[uuid]||{clasif:{}}), metodo}})); }
+  function setTipo(uuid, idp, tipo){ setEstado(prev => { const e = prev[uuid]||{metodo:"PPD",clasif:{}}; return {...prev,[uuid]:{...e,clasif:{...e.clasif,[idp]:tipo}}}; }); }
+  async function generar(f){
+    if (busy) return;
+    const e = estado[f.uuid] || {};
+    let clasif = (e.clasif && Object.keys(e.clasif).length) ? e.clasif : {};
+    if (!Object.keys(clasif).length) { f.lineas.forEach(l => { clasif[l.id_producto] = l.sugerido||"agroquimico"; }); }
+    const metodo = e.metodo || "PPD";
+    setBusy(f.uuid);
+    try {
+      const url = SHEETS_URL + "?accion=contabilizar_factura_agro&uuid=" + encodeURIComponent(f.uuid) + "&metodo=" + metodo + "&clasificacion=" + encodeURIComponent(JSON.stringify(clasif));
+      const d = await (await fetch(url)).json();
+      if (d.ok){ alert("✅ Póliza generada: " + d.numero_poliza); setReload(x=>x+1); }
+      else alert("No se pudo: " + (d.error||"error"));
+    } catch(err){ alert("Error: " + err); }
+    setBusy("");
+  }
+  async function abrirXmlMes(){
+    try {
+      const d = await (await fetch(SHEETS_URL + "?accion=carpeta_xml_mes")).json();
+      if (d.ok && d.url) window.open(d.url, "_blank");
+      else alert("No se pudo abrir la carpeta: " + (d.error || "sin carpeta configurada"));
+    } catch(e){ alert("Error: " + e); }
+  }
+  const tipoBtn = (activo) => ({padding:"4px 10px",borderRadius:7,fontSize:11,fontWeight:600,cursor:"pointer",border:"1px solid " + (activo?"rgba(120,180,60,0.6)":"rgba(255,255,255,0.12)"),background:activo?"rgba(120,180,60,0.22)":"transparent",color:activo?"#c8f090":"#7a9058"});
+  return h("div", null,
+    h("div", {style:{marginBottom:14}},
+      h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:2,marginBottom:4}}, "CONTABILIDAD"),
+      h("div", {style:{fontSize:22,fontWeight:700,color:"#b8e870"}}, "Pólizas de agroquímicos")
+    ),
+    h("div", {style:{fontSize:12,color:"#8aa870",background:"rgba(120,160,80,0.08)",border:"1px solid rgba(120,160,80,0.2)",borderRadius:10,padding:"10px 12px",marginBottom:16}},
+      "Genera la póliza Dr de cada factura recibida. El CSV para COI se descarga en ⛽ Combustible → 📄 Pólizas para COI (todas las pólizas del rancho juntas)."),
+    h("div", {style:{marginBottom:16}},
+      h("button", {onClick:abrirXmlMes,style:{padding:"10px 16px",background:"rgba(80,140,200,0.15)",border:"1px solid rgba(80,140,200,0.4)",borderRadius:9,color:"#9cc8f0",fontSize:13,fontWeight:600,cursor:"pointer"}}, "📁 Abrir carpeta de XML del mes (para COI)")
+    ),
+    loading && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30}}, "Cargando…"),
+    error && h("div", {style:{color:"#e08060",padding:14}}, "Error: " + error),
+    !loading && facturas.length===0 && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30,fontStyle:"italic"}}, "No hay facturas pendientes de contabilizar 🎉"),
+    !loading && facturas.map((f,fi) => {
+      const e = estado[f.uuid] || {metodo:"PPD",clasif:{}};
+      return h("div", {key:f.uuid||fi,style:C.card},
+        h("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8,marginBottom:10}},
+          h("div", {style:{flex:1,minWidth:0}},
+            h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1}}, fmtFecha(f.fecha) + " · " + (f.folio||"")),
+            h("div", {style:{fontSize:15,fontWeight:700,color:"#c8e898"}}, f.proveedor||"—")
+          ),
+          h("div", {style:{textAlign:"right"}},
+            h("div", {style:{fontSize:16,fontWeight:800,color:"#e8a030"}}, fmtMXN(f.total)),
+            f.iva>0 && h("div", {style:{fontSize:11,color:"#c8a030"}}, "IVA " + fmtMXN(f.iva))
+          )
+        ),
+        h("div", {style:{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}},
+          h("span", {style:{fontSize:11,color:"#6a9050",letterSpacing:1}}, "MÉTODO DE PAGO"),
+          h("button", {onClick:()=>setMetodo(f.uuid,"PPD"),style:tipoBtn(e.metodo!=="PUE")}, "PPD (a crédito)"),
+          h("button", {onClick:()=>setMetodo(f.uuid,"PUE"),style:tipoBtn(e.metodo==="PUE")}, "PUE (de contado)")
+        ),
+        f.lineas.map((l,li) => h("div", {key:li,style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap",padding:"8px 0",borderTop:"1px solid rgba(255,255,255,0.06)"}},
+          h("div", {style:{flex:1,minWidth:150}},
+            h("div", {style:{fontSize:13,fontWeight:600,color:"#c8e898"}}, l.nombre||"—"),
+            h("div", {style:{fontSize:11,color:"#8aa870"}}, "Base " + fmtMXN(l.base) + (l.iva>0?" · IVA " + fmtMXN(l.iva):" · exento"))
+          ),
+          h("div", {style:{display:"flex",gap:6}},
+            h("button", {onClick:()=>setTipo(f.uuid,l.id_producto,"agroquimico"),style:tipoBtn((e.clasif[l.id_producto]||l.sugerido)==="agroquimico")}, "Agroquímico"),
+            h("button", {onClick:()=>setTipo(f.uuid,l.id_producto,"fertilizante"),style:tipoBtn((e.clasif[l.id_producto]||l.sugerido)==="fertilizante")}, "Fertilizante")
+          )
+        )),
+        h("div", {style:{marginTop:12}},
+          h("button", {onClick:()=>generar(f),disabled:busy===f.uuid,style:{...C.bigBtn,padding:"10px 18px",fontSize:14,opacity:busy===f.uuid?0.6:1}}, busy===f.uuid?"Generando…":"💼 Generar póliza")
+        )
+      );
+    })
   );
 }
 
