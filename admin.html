@@ -1833,6 +1833,9 @@ function TabPolizasAgro() {
   const facturas = (data && data.facturas) || [];
   const porPagar = useFetch(SHEETS_URL + "?accion=facturas_agro_por_pagar", [reloadP]);
   const facturasPagar = (porPagar.data && porPagar.data.facturas) || [];
+  const [reloadAp, setReloadAp] = useState(0);
+  const pasesAp = useFetch(SHEETS_URL + "?accion=pases_aplicacion_pendientes", [reloadAp]);
+  const pases = (pasesAp.data && pasesAp.data.pases) || [];
   useEffect(() => {
     if (!facturas.length) return;
     setEstado(prev => {
@@ -1882,7 +1885,18 @@ function TabPolizasAgro() {
     } catch(err){ alert("Error: " + err); }
     setBusy("");
   }
-  const vistaBtn = (activo) => ({flex:1,padding:"10px",borderRadius:9,fontSize:13,fontWeight:700,cursor:"pointer",border:"1px solid " + (activo?"rgba(120,180,60,0.6)":"rgba(255,255,255,0.12)"),background:activo?"rgba(120,180,60,0.18)":"rgba(255,255,255,0.03)",color:activo?"#c8f090":"#7a9058"});
+  async function contabilizarPase(p){
+    if (busy) return;
+    if (!p.cc){ alert("⚠️ Este pase no tiene centro de costos mapeado para el rancho:\n" + (p.rancho||"") + "\nNo se puede generar la póliza hasta resolver el mapeo."); return; }
+    if (!confirm("¿Generar póliza de aplicación?\n\nRancho: " + (p.rancho||"") + "\nCentro de costo: " + p.cc + "\nProductos: " + p.lineas.length + "\nTotal: " + fmtMXN(p.total) + "\n\nDr Gasto (con CC) / Cr Almacén")) return;
+    setBusy(p.id_actividad);
+    try {
+      const d = await (await fetch(SHEETS_URL + "?accion=contabilizar_pase_aplicacion&id_actividad=" + encodeURIComponent(p.id_actividad))).json();
+      if (d.ok){ alert("✅ Póliza de aplicación: " + d.numero_poliza + " · centro de costo " + d.centro_costos); setReloadAp(x=>x+1); }
+      else alert("No se pudo: " + (d.error||"error"));
+    } catch(err){ alert("Error: " + err); }
+    setBusy("");
+  }
   const tipoBtn = (activo) => ({padding:"4px 10px",borderRadius:7,fontSize:11,fontWeight:600,cursor:"pointer",border:"1px solid " + (activo?"rgba(120,180,60,0.6)":"rgba(255,255,255,0.12)"),background:activo?"rgba(120,180,60,0.22)":"transparent",color:activo?"#c8f090":"#7a9058"});
   return h("div", null,
     h("div", {style:{marginBottom:14}},
@@ -1890,8 +1904,32 @@ function TabPolizasAgro() {
       h("div", {style:{fontSize:22,fontWeight:700,color:"#b8e870"}}, "Pólizas de agroquímicos")
     ),
     h("div", {style:{display:"flex",gap:8,marginBottom:16}},
-      h("button", {onClick:()=>setVista("contabilizar"),style:vistaBtn(vista==="contabilizar")}, "📝 Por contabilizar"),
-      h("button", {onClick:()=>setVista("pagar"),style:vistaBtn(vista==="pagar")}, "💵 Por pagar")
+      h("button", {onClick:()=>setVista("contabilizar"),style:vistaBtn(vista==="contabilizar")}, "📝 Compras"),
+      h("button", {onClick:()=>setVista("pagar"),style:vistaBtn(vista==="pagar")}, "💵 Pagos"),
+      h("button", {onClick:()=>setVista("aplicar"),style:vistaBtn(vista==="aplicar")}, "🌿 Aplicaciones")
+    ),
+    vista==="aplicar" && h("div", null,
+      h("div", {style:{fontSize:12,color:"#8aa870",background:"rgba(120,180,60,0.08)",border:"1px solid rgba(120,180,60,0.2)",borderRadius:10,padding:"10px 12px",marginBottom:16}},
+        "Cada pase de aplicación genera su póliza Dr: Gasto del producto CON centro de costos del rancho / Cr Almacén. Así el costo cae en el rancho donde se aplicó."),
+      pasesAp.loading && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30}}, "Cargando…"),
+      !pasesAp.loading && pases.length===0 && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30,fontStyle:"italic"}}, "No hay aplicaciones pendientes de contabilizar 🎉"),
+      !pasesAp.loading && pases.map((p,pi) => h("div", {key:p.id_actividad||pi,style:C.card},
+        h("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8,marginBottom:10}},
+          h("div", {style:{flex:1,minWidth:0}},
+            h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1}}, fmtFecha(p.fecha)),
+            h("div", {style:{fontSize:15,fontWeight:700,color:"#c8e898"}}, p.rancho||"—"),
+            h("span", {style:{display:"inline-block",marginTop:4,fontSize:11,fontWeight:700,padding:"2px 9px",borderRadius:6,background:p.cc?"rgba(120,180,60,0.2)":"rgba(220,90,70,0.2)",color:p.cc?"#b8e870":"#e89080"}}, p.cc?("Centro de costo "+p.cc):"⚠️ Sin centro de costo")
+          ),
+          h("div", {style:{textAlign:"right"}},
+            h("div", {style:{fontSize:16,fontWeight:800,color:"#e8a030"}}, fmtMXN(p.total)),
+            h("div", {style:{fontSize:11,color:"#6a9050"}}, p.lineas.length + (p.lineas.length===1?" producto":" productos"))
+          )
+        ),
+        h("div", {style:{fontSize:12,color:"#9ab880",marginBottom:10,lineHeight:1.5}},
+          p.lineas.map((l,li) => l.nombre + " · " + fmtMXN(l.costo) + (l.tipo==="fertilizante"?" (fert)":" (agro)")).join("  ·  ")
+        ),
+        h("button", {onClick:()=>contabilizarPase(p),disabled:busy===p.id_actividad,style:{...C.bigBtn,padding:"10px 18px",fontSize:14,opacity:busy===p.id_actividad?0.6:1}}, busy===p.id_actividad?"Generando…":"🌿 Generar póliza de aplicación")
+      ))
     ),
     vista==="pagar" && h("div", null,
       h("div", {style:{fontSize:12,color:"#8aa870",background:"rgba(80,140,200,0.08)",border:"1px solid rgba(80,140,200,0.2)",borderRadius:10,padding:"10px 12px",marginBottom:16}},
