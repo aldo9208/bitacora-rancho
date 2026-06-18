@@ -293,6 +293,1106 @@ function FormActividad({initial,onSave,onClose,jornalerosConfig,dia}){
     return{};
   });
   const [nota,setNota] = useState(initial?.nota||"");
+  const [precioReja,setPrecioReja] = useState(String(initial?.precio_reja||""));
+
+  // Estado nuevo: aplicaciones de agroquímicos (lista de productos aplicados)
+  const [aplicaciones, setAplicaciones] = useState(initial?.aplicaciones || []);
+  const [volumenMezcla, setVolumenMezcla] = useState(initial?.volumen_mezcla || 0);
+  const [plagaObjetivo, setPlagaObjetivo] = useState(initial?.plaga_objetivo || "");
+  const [aplicador, setAplicador] = useState(initial?.aplicador || "");
+  const [clima, setClima] = useState(initial?.clima || "");
+  const [catalogo, setCatalogo] = useState([]);
+  const [cargandoCat, setCargandoCat] = useState(false);
+
+  const requiereAplicacion = ACTIVIDADES_CON_APLICACION.includes(actividad);
+
+  // Carga el catálogo cuando entramos al paso de productos
+  useEffect(()=>{
+    if(paso===25 && catalogo.length===0){
+      setCargandoCat(true);
+      loadCatalogo().then(p=>{ setCatalogo(p); setCargandoCat(false); });
+    }
+  },[paso]);
+
+  const ranchoConfig = getRanchoConfig(ranchoId);
+  const tieneSecciones = ranchoConfig?.secciones?.length > 0;
+  const toggleJ=n=>setSelJ(p=>{if(p[n]!==undefined){const x={...p};delete x[n];return x;}return{...p,[n]:""}; });
+  const setPago=(n,v)=>setSelJ(p=>({...p,[n]:v}));
+  const esDestajo=/cosech/i.test(actividad);
+  const precioRejaNum=Number(String(precioReja).replace(/[^0-9.]/g,""))||0;
+  const totalRaya=esDestajo?Object.values(selJ).reduce((s,v)=>s+(Number(v||0)*precioRejaNum),0):Object.values(selJ).reduce((s,v)=>s+Number(v||0),0);
+  const lugarLabel = getLugarLabel(ranchoId, seccionId);
+
+  const doSave=()=>{
+    // IMPORTANTE: si se está editando un registro ya enviado, lo desmarcamos
+    // para que se vuelva a subir con los cambios
+    const registro = {
+      ranchoId, seccionId, rancho:lugarLabel, actividad,
+      jornaleros:Object.entries(selJ).map(([nombre,val])=>({nombre,pago:(/cosech/i.test(actividad)?Number(val||0)*(Number(String(precioReja).replace(/[^0-9.]/g,""))||0):Number(val||0))})),
+      nota, id:initial?.id||Date.now(), enviado:false
+    };
+    // Si la actividad requiere aplicación, anexamos los datos
+    if(requiereAplicacion && aplicaciones.length>0){
+      registro.aplicaciones = aplicaciones.filter(a => a.id_producto && a.cantidad_aplicada);
+      registro.volumen_mezcla = Number(volumenMezcla)||0;
+      registro.plaga_objetivo = plagaObjetivo;
+      registro.aplicador = aplicador;
+      registro.clima = clima;
+    }
+    if(/cosech/i.test(actividad)){try{var _pr=Number(String(precioReja).replace(/[^0-9.]/g,""))||0;fetch(SHEETS_URL,{method:"POST",body:JSON.stringify({accion:"guardar_cosecha_destajo",id_actividad:registro.id,fecha:new Date().toISOString(),rancho:registro.rancho,precio_reja:_pr,jornaleros:Object.entries(selJ).map(function(en){return{nombre:en[0],rejas:Number(en[1]||0),pago:Number(en[1]||0)*_pr};})})});}catch(_e){}}
+    onSave(registro);
+  };
+
+  if(paso===0) return h("div",{style:{background:"#0e1a0a",minHeight:"100vh"}},
+    h(Hdr,{titulo:"¿En qué rancho?",sub:dia,onBack:onClose}),
+    h("div",{style:{padding:"16px"}},
+      RANCHOS_CONFIG.map(r=>h("button",{key:r.id,
+        onClick:()=>{setRanchoId(r.id);setSeccionId("");r.secciones.length>0?setPaso(1):setPaso(2);},
+        style:{...chip(ranchoId===r.id),marginBottom:10,borderRadius:13}},
+        h("div",{style:{fontWeight:700}},r.nombre),
+        r.secciones.length>0&&h("div",{style:{fontSize:11,color:"#6a9050",marginTop:3}},
+          r.secciones.map(s=>s.nombre+(s.ha?" ("+s.ha+")":"")).join(" · ")
+        )
+      ))
+    )
+  );
+
+  if(paso===1) return h("div",{style:{background:"#0e1a0a",minHeight:"100vh"}},
+    h(Hdr,{titulo:"¿Qué sección?",sub:ranchoConfig?.nombre,onBack:()=>setPaso(0)}),
+    h("div",{style:{padding:"16px"}},
+      ranchoConfig.secciones.map(sec=>h("button",{key:sec.id,
+        onClick:()=>{setSeccionId(sec.id);setPaso(2);},
+        style:{...chip(seccionId===sec.id),marginBottom:10,borderRadius:13}},
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+          h("span",{style:{fontWeight:700}},sec.nombre),
+          sec.ha&&h("span",{style:{fontSize:12,color:"#7ab850",background:"rgba(80,160,30,0.15)",padding:"3px 9px",borderRadius:20}},sec.ha)
+        )
+      ))
+    )
+  );
+
+  if(paso===2) return h("div",{style:{background:"#0e1a0a",minHeight:"100vh"}},
+    h(Hdr,{titulo:"¿Qué actividad?",sub:lugarLabel,onBack:()=>tieneSecciones?setPaso(1):setPaso(0)}),
+    h("div",{style:{padding:"16px"}},
+      ACTIVIDADES.map(a=>h("button",{key:a,
+        onClick:()=>{
+          setActividad(a);
+          // Si la actividad requiere registrar productos aplicados, va al paso 25
+          if(ACTIVIDADES_CON_APLICACION.includes(a)){
+            if(!volumenMezcla || volumenMezcla===0) setVolumenMezcla(VOLUMEN_SUGERIDO[a]||0);
+            setPaso(25);
+          } else {
+            setPaso(3);
+          }
+        },
+        style:{...chip(actividad===a),marginBottom:8,borderRadius:13}},a))
+    )
+  );
+
+  // ── PASO 25: Productos aplicados (agroquímicos) ─────────────────────────────
+  if(paso===25){
+    const agregarProducto = () => {
+      setAplicaciones([...aplicaciones, {
+        id_producto:"", nombre_producto:"", cantidad_aplicada:"", unidad:""
+      }]);
+    };
+    const quitarProducto = (i) => {
+      setAplicaciones(aplicaciones.filter((_,idx)=>idx!==i));
+    };
+    const actualizarProducto = (i, campo, valor) => {
+      const nueva = [...aplicaciones];
+      if(campo === "id_producto"){
+        const prod = catalogo.find(p=>p.id===valor);
+        nueva[i] = {
+          ...nueva[i],
+          id_producto: valor,
+          nombre_producto: prod ? prod.nombre_comercial : "",
+          unidad: prod ? prod.unidad_aplicacion : ""
+        };
+      } else {
+        nueva[i][campo] = valor;
+      }
+      setAplicaciones(nueva);
+    };
+    return h("div",{style:{background:"#0e1a0a",minHeight:"100vh"}},
+      h(Hdr,{titulo:"¿Qué productos aplicaste?",sub:actividad.length>32?actividad.slice(0,32)+"...":actividad,onBack:()=>setPaso(2)}),
+      h("div",{style:{padding:"14px 14px 110px"}},
+        h("div",{style:{...C.card,background:"rgba(30,60,15,0.4)",marginBottom:14}},
+          h("div",{style:{fontSize:11,color:"#7ab850",marginBottom:2}},lugarLabel),
+          h("div",{style:{fontSize:13,color:"#a0c870",fontStyle:"italic"}},actividad)
+        ),
+        // Volumen de mezcla
+        h("div",{style:{marginBottom:14}},
+          h("label",{style:lbl},"Volumen de mezcla total (L)"),
+          h("input",{type:"number",value:volumenMezcla,onChange:e=>setVolumenMezcla(e.target.value),
+            placeholder:"Ej: 200",style:C.inp})
+        ),
+        // Lista de productos
+        h("div",{style:{fontSize:11,color:"#5a7a40",marginBottom:8,letterSpacing:1.5}},"PRODUCTOS APLICADOS"),
+        cargandoCat && h("div",{style:{color:"#6a8a50",textAlign:"center",padding:"20px 0",fontSize:13}},"Cargando catálogo..."),
+        !cargandoCat && catalogo.length===0 && h("div",{style:{color:"#a06030",textAlign:"center",padding:"20px 0",fontSize:12,fontStyle:"italic"}},
+          "Sin catálogo disponible. Verifica conexión o configura productos en el Sheet."
+        ),
+        aplicaciones.map((app,i)=>h("div",{key:i,style:{...C.card,marginBottom:10}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
+            h("div",{style:{fontSize:11,color:"#7ab850",letterSpacing:1}},"Producto "+(i+1)),
+            h("button",{onClick:()=>quitarProducto(i),style:{background:"none",border:"none",color:"#d04040",cursor:"pointer",fontSize:18}},"×")
+          ),
+          h("select",{value:app.id_producto,onChange:e=>actualizarProducto(i,"id_producto",e.target.value),
+            style:{...C.inp,marginBottom:8}},
+            h("option",{value:""},"— Selecciona producto —"),
+            catalogo.map(p=>h("option",{key:p.id,value:p.id},p.nombre_comercial))
+          ),
+          h("div",{style:{display:"flex",gap:8}},
+            h("input",{type:"number",step:"0.01",value:app.cantidad_aplicada,
+              onChange:e=>actualizarProducto(i,"cantidad_aplicada",e.target.value),
+              placeholder:"Cantidad",style:{...C.inp,flex:2}}),
+            h("div",{style:{...C.inp,flex:1,textAlign:"center",background:"rgba(80,160,30,0.1)",color:"#90c848"}},app.unidad||"—")
+          )
+        )),
+        h("button",{onClick:agregarProducto,disabled:catalogo.length===0,
+          style:{...C.ghost,marginBottom:16,opacity:catalogo.length===0?0.5:1}},"+ Agregar producto"),
+        // Datos extra
+        h("div",{style:{marginBottom:12}},
+          h("label",{style:lbl},"Plaga / maleza objetivo (opcional)"),
+          h("input",{type:"text",value:plagaObjetivo,onChange:e=>setPlagaObjetivo(e.target.value),
+            placeholder:"Ej: Mosca prieta, malezas de cajete",style:C.inp})
+        ),
+        h("div",{style:{marginBottom:12}},
+          h("label",{style:lbl},"Aplicador (quién lo aplicó)"),
+          h("input",{type:"text",value:aplicador,onChange:e=>setAplicador(e.target.value),
+            placeholder:"Ej: Heriberto",style:C.inp})
+        ),
+        h("div",{style:{marginBottom:12}},
+          h("label",{style:lbl},"Clima al aplicar"),
+          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}},
+            ["☀️ Soleado","☁️ Nublado","🌧️ Lluvia"].map(opt=>h("button",{key:opt,
+              onClick:()=>setClima(opt),
+              style:{...chip(clima===opt),padding:"10px 6px",fontSize:13,borderRadius:10,textAlign:"center"}},opt))
+          )
+        )
+      ),
+      h(FixBot,null,
+        h("button",{onClick:()=>setPaso(3),style:C.bigBtn},"Continuar →")
+      )
+    );
+  }
+
+  if(paso===3) return h("div",{style:{background:"#0e1a0a",minHeight:"100vh"}},
+    h(Hdr,{titulo:"¿Quién trabajó?",sub:actividad.length>32?actividad.slice(0,32)+"...":actividad,onBack:()=>setPaso(requiereAplicacion?25:2)}),
+    h("div",{style:{padding:"14px 14px 110px"}},
+      h("div",{style:{...C.card,background:"rgba(30,60,15,0.4)",marginBottom:14}},
+        h("div",{style:{fontSize:11,color:"#7ab850",marginBottom:2}},lugarLabel),
+        h("div",{style:{fontSize:13,color:"#a0c870",fontStyle:"italic"}},actividad)
+      ),
+      esDestajo&&h("div",{style:{marginBottom:12,display:"flex",alignItems:"center",gap:8}},h("span",{style:{fontSize:13,color:"#c8a030",fontWeight:700}},"Precio por reja $"),h("input",{type:"number",value:precioReja,onChange:e=>setPrecioReja(e.target.value),placeholder:"0.00",style:{width:100,background:"rgba(255,255,255,0.08)",border:"2px solid rgba(200,160,40,0.4)",borderRadius:9,color:"#e8f8d0",padding:"10px 8px",fontSize:15,outline:"none",textAlign:"center"}})),
+      h("div",{style:{fontSize:11,color:"#5a7a40",marginBottom:10}},esDestajo?"Toca el nombre → escribe las rejas":"Toca el nombre → escribe el pago"),
+      jornalerosConfig.map(nombre=>{
+        const sel=selJ[nombre]!==undefined;
+        return h("div",{key:nombre,style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
+          h("button",{onClick:()=>toggleJ(nombre),
+            style:{flex:1,background:sel?"rgba(80,160,30,0.2)":"rgba(255,255,255,0.04)",
+              border:`2px solid ${sel?"#70c040":"rgba(255,255,255,0.1)"}`,borderRadius:12,
+              color:sel?"#c0f080":"#7a9a68",padding:"13px 14px",fontSize:15,cursor:"pointer",
+              textAlign:"left",fontWeight:sel?700:400}},
+            (sel?"✓ ":"")+nombre
+          ),
+          sel&&h("input",{type:"number",value:selJ[nombre],onChange:e=>setPago(nombre,e.target.value),
+            placeholder:esDestajo?"rejas":"$",style:{width:esDestajo?62:88,background:"rgba(255,255,255,0.08)",
+              border:"2px solid rgba(120,200,60,0.3)",borderRadius:9,color:"#e8f8d0",
+              padding:"12px 8px",fontSize:15,outline:"none",textAlign:"center"}}),sel&&esDestajo&&h("span",{style:{fontSize:14,color:"#c8a030",fontWeight:700,minWidth:74,textAlign:"right"}},fmtMXN((Number(selJ[nombre]||0))*precioRejaNum))
+        );
+      })
+    ),
+    h(FixBot,null,
+      totalRaya>0&&h("div",{style:{textAlign:"right",fontSize:13,color:"#e8a030",fontWeight:700,marginBottom:8}},"Raya: "+fmtMXN(totalRaya)),
+      h("button",{onClick:()=>setPaso(4),style:C.bigBtn},"Continuar →")
+    )
+  );
+
+  if(paso===4) return h("div",{style:{background:"#0e1a0a",minHeight:"100vh"}},
+    h(Hdr,{titulo:"¿Alguna nota?",sub:"Opcional",onBack:()=>setPaso(3)}),
+    h("div",{style:{padding:"14px 14px 110px"}},
+      h("div",{style:{...C.card,background:"rgba(30,60,15,0.4)",marginBottom:14}},
+        h("div",{style:{fontSize:11,color:"#7ab850",marginBottom:2}},lugarLabel),
+        h("div",{style:{fontSize:13,color:"#a0c870",fontStyle:"italic",marginBottom:6}},actividad),
+        requiereAplicacion && aplicaciones.length>0 && h("div",{style:{fontSize:12,color:"#9ac868",marginBottom:6,padding:"6px 0",borderTop:"1px solid rgba(120,180,60,0.15)",borderBottom:"1px solid rgba(120,180,60,0.15)"}},
+          h("div",{style:{fontSize:10,color:"#6a9050",letterSpacing:1.5,marginBottom:3}},"PRODUCTOS APLICADOS"),
+          aplicaciones.filter(a=>a.id_producto).map((a,i)=>h("div",{key:i,style:{fontSize:12}},
+            "• "+a.nombre_producto+": "+a.cantidad_aplicada+" "+a.unidad
+          )),
+          volumenMezcla>0 && h("div",{style:{fontSize:11,color:"#7a9858",marginTop:3}},"Mezcla: "+volumenMezcla+" L"+(aplicador?" · Aplicador: "+aplicador:""))
+        ),
+        Object.keys(selJ).length>0&&h("div",{style:{fontSize:12,color:"#8aa868"}},
+          Object.entries(selJ).filter(([,v])=>v).map(([n,v])=>n+" "+fmtMXN(Number(v))).join(" · ")
+        ),
+        totalRaya>0&&h("div",{style:{fontSize:13,color:"#e8a030",fontWeight:700,marginTop:4}},"Raya: "+fmtMXN(totalRaya))
+      ),
+      h("textarea",{value:nota,onChange:e=>setNota(e.target.value),rows:4,
+        placeholder:"Ej: Corrida 9319423, faltó Ángel, lluvia en la mañana...",
+        style:{...C.inp,resize:"none",lineHeight:1.5}})
+    ),
+    h(FixBot,null,
+      h("button",{onClick:doSave,style:C.bigBtn},"✓ Guardar actividad")
+    )
+  );
+  return null;
+}
+
+// ── PantallaRegistro ──────────────────────────────────────────────────────────
+function PantallaRegistro({semanaNum,onVerResumen,onConfig,onCombustible,onCiclos}){
+  const [paso,setPaso]=useState(0);
+  const [dia,setDia]=useState(hoy());
+  const [registros,setRegistros]=useState([]);
+  const [editIdx,setEditIdx]=useState(null);
+  const [showForm,setShowForm]=useState(false);
+  const [refreshKey,setRefreshKey]=useState(0); // para forzar recálculo de pendientes
+  const jornalerosConfig=load("jornaleros_config",DEFAULT_JORNALEROS);
+
+  useEffect(()=>{setRegistros(load(`s${semanaNum}_${dia}`,[]));},[ dia,semanaNum]);
+
+  const saveAct=act=>{
+    const list=[...registros];
+    const idx=list.findIndex(r=>r.id===act.id);
+    if(idx>=0)list[idx]=act; else list.push(act);
+    setRegistros(list);
+    save(`s${semanaNum}_${dia}`,list);
+    const lista=load("semanas_lista",[]);
+    if(!lista.includes(semanaNum))save("semanas_lista",[...lista,semanaNum].sort((a,b)=>b-a));
+    setShowForm(false);setEditIdx(null);
+    setRefreshKey(k=>k+1);
+    setPaso(6);
+  };
+  const del=id=>{const l=registros.filter(r=>r.id!==id);setRegistros(l);save(`s${semanaNum}_${dia}`,l);setRefreshKey(k=>k+1);};
+
+  if(showForm) return h(FormActividad,{
+    initial:editIdx!==null?registros[editIdx]:null,
+    onSave:saveAct,
+    onClose:()=>{setShowForm(false);setEditIdx(null);setPaso(paso===6?6:1);},
+    jornalerosConfig,dia
+  });
+
+  if(paso===0) return h("div",null,
+    h("div",{style:{...C.hdr,display:"flex",justifyContent:"space-between",alignItems:"center"}},
+      h("div",null,
+        h("div",{style:{fontSize:9,color:"#4a7030",letterSpacing:3}},"SEMANA #"+semanaNum),
+        h("div",{style:{fontSize:21,fontWeight:700,color:"#b8e880"}},"Bitácora del Rancho")
+      ),
+      h("button",{onClick:onConfig,style:{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"#8ab060",padding:"8px 11px",fontSize:17,cursor:"pointer"}},"⚙️")
+    ),
+    h("div",{style:{padding:"16px"}},
+      h("div",{style:{fontSize:12,color:"#5a8040",marginBottom:12}},"¿Qué día vas a registrar?"),
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:14}},
+        DIAS.map(d=>{
+          const has=load(`s${semanaNum}_${d}`,[]).length>0;
+          return h("button",{key:d,onClick:()=>{setDia(d);setRegistros(load(`s${semanaNum}_${d}`,[]));setPaso(1);},
+            style:{...chip(dia===d),padding:"15px 12px",fontSize:15,position:"relative",borderRadius:13}},
+            has&&h("span",{style:{position:"absolute",top:7,right:9,width:8,height:8,background:"#a0e060",borderRadius:"50%"}}),
+            d
+          );
+        })
+      ),
+      h("div",{style:{marginBottom:10}},h(BtnSheets,{semanaNum,refreshKey})),
+      h("button",{onClick:onVerResumen,style:{...C.ghost,marginBottom:10}},"📊 Ver resumen de la semana"),
+      h("button",{onClick:onCombustible,style:{...C.ghost,background:"rgba(120,80,20,0.08)",border:"1px solid rgba(180,120,40,0.18)",color:"#b09060"}},"🛢️ Combustible"),h("button",{onClick:onCiclos,style:{...C.ghost,background:"rgba(60,120,40,0.10)",border:"1px solid rgba(120,180,60,0.25)",color:"#9cc070"}},"🔄 Ciclos")
+    )
+  );
+
+  if(paso===1) return h("div",null,
+    h(Hdr,{titulo:"Registros · "+dia,sub:"Semana #"+semanaNum,onBack:()=>setPaso(0)}),
+    h("div",{style:{padding:"14px 14px 100px"}},
+      registros.length===0
+        ?h("div",{style:{color:"#3a5a28",textAlign:"center",padding:"32px 0"}},"Sin actividades registradas hoy")
+        :registros.map(r=>h("div",{key:r.id,style:C.card},
+            h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
+              h("div",{style:{flex:1}},
+                h("div",{style:{fontSize:12,fontWeight:700,color:"#90c848",marginBottom:3,display:"flex",alignItems:"center",gap:6}},
+                  r.rancho,
+                  r.enviado&&h("span",{style:{fontSize:10,color:"#5a8a3a",background:"rgba(80,160,30,0.15)",padding:"2px 7px",borderRadius:10,fontWeight:400}},"✓ en Sheets")
+                ),
+                h("div",{style:{fontSize:13,color:"#c8e898",marginBottom:4,fontStyle:"italic"}},r.actividad),
+                r.aplicaciones && r.aplicaciones.length>0 && h("div",{style:{fontSize:11,color:"#9ac868",marginBottom:4,paddingLeft:8,borderLeft:"2px solid rgba(120,180,60,0.3)"}},
+                  r.aplicaciones.map(a=>a.nombre_producto+" "+a.cantidad_aplicada+a.unidad).join(" · ")
+                ),
+                r.jornaleros&&r.jornaleros.length>0&&h("div",{style:{fontSize:12,color:"#8aa870",marginBottom:r.nota?3:0}},
+                  r.jornaleros.map(j=>j.nombre+(j.pago?` ${fmtMXN(j.pago)}`:"")).join(" · ")
+                ),
+                r.nota&&h("div",{style:{fontSize:11,color:"#5a7040",fontStyle:"italic"}},"* "+r.nota)
+              ),
+              h("div",{style:{display:"flex",gap:4,marginLeft:6}},
+                h("button",{onClick:()=>{setEditIdx(registros.findIndex(x=>x.id===r.id));setShowForm(true);},
+                  style:{background:"none",border:"none",color:"#c8a028",cursor:"pointer",fontSize:16}},"✏️"),
+                h("button",{onClick:()=>del(r.id),
+                  style:{background:"none",border:"none",color:"#d04040",cursor:"pointer",fontSize:16}},"🗑")
+              )
+            )
+          ))
+    ),
+    h(FixBot,null,
+      h("button",{onClick:()=>{setEditIdx(null);setShowForm(true);},style:C.bigBtn},"+ Agregar actividad")
+    )
+  );
+
+  if(paso===6) return h("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"60px 22px",textAlign:"center",minHeight:"100vh"}},
+    h("div",{style:{fontSize:64,marginBottom:14}},"✅"),
+    h("div",{style:{fontSize:20,fontWeight:700,color:"#a8e060",marginBottom:6}},"¡Actividad guardada!"),
+    h("div",{style:{fontSize:13,color:"#6a8a50",marginBottom:32}},dia),
+    h("button",{onClick:()=>{setEditIdx(null);setShowForm(true);},style:{...C.bigBtn,marginBottom:10}},"+ Agregar otra actividad"),
+    h("button",{onClick:()=>setPaso(1),style:{...C.ghost,marginBottom:10}},"📋 Ver todas del día"),
+    h("div",{style:{width:"100%",marginBottom:10}},h(BtnSheets,{semanaNum,refreshKey})),
+    h("button",{onClick:()=>setPaso(0),style:C.ghost},"← Cambiar día")
+  );
+  return null;
+}
+
+// ── PantallaResumen ───────────────────────────────────────────────────────────
+function PantallaResumen({semanaNum,onVolver}){
+  const [verDia,setVerDia]=useState(null);
+  let totalRaya=0,totalActs=0;
+  const porDia=DIAS.map(dia=>{
+    const regs=load(`s${semanaNum}_${dia}`,[]);
+    let raya=0;
+    regs.forEach(r=>{(r.jornaleros||[]).forEach(j=>{raya+=Number(j.pago||0);});});
+    totalRaya+=raya;totalActs+=regs.length;
+    return{dia,regs,raya};
+  }).filter(d=>d.regs.length>0);
+
+  const porRancho={};
+  porDia.forEach(d=>d.regs.forEach(r=>{
+    const key=r.rancho||"";
+    if(!porRancho[key])porRancho[key]={raya:0,acts:new Set()};
+    (r.jornaleros||[]).forEach(j=>{porRancho[key].raya+=Number(j.pago||0);});
+    porRancho[key].acts.add(r.actividad);
+  }));
+
+  return h("div",null,
+    h(Hdr,{titulo:"Semana #"+semanaNum,sub:"Resumen semanal",onBack:onVolver}),
+    h("div",{style:{padding:"14px"}},
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}},
+        [{label:"RAYA TOTAL",val:fmtMXN(totalRaya),color:"#e8a030"},
+         {label:"ACTIVIDADES",val:totalActs,color:"#90c840"}
+        ].map(t=>h("div",{key:t.label,style:{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,padding:"13px",textAlign:"center"}},
+          h("div",{style:{fontSize:20,fontWeight:800,color:t.color}},t.val),
+          h("div",{style:{fontSize:9,color:"#5a7a40",letterSpacing:1.2,marginTop:3}},t.label)
+        ))
+      ),
+      h("div",{style:{marginBottom:14}},h(BtnSheets,{semanaNum})),
+      Object.keys(porRancho).length>0&&h("div",{style:{marginBottom:14}},
+        h("div",{style:{fontSize:10,color:"#5a7a40",letterSpacing:2,marginBottom:8}},"POR LUGAR"),
+        Object.entries(porRancho).map(([lugar,d])=>h("div",{key:lugar,style:{...C.card,marginBottom:7}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
+            h("div",{style:{flex:1,fontSize:13,fontWeight:700,color:"#90c848"}},lugar),
+            d.raya>0&&h("div",{style:{fontSize:13,fontWeight:700,color:"#e8a030",whiteSpace:"nowrap",marginLeft:8}},fmtMXN(d.raya))
+          ),
+          h("div",{style:{fontSize:11,color:"#6a8a50",marginTop:4}},[...d.acts].join(" · "))
+        ))
+      ),
+      h("div",{style:{fontSize:10,color:"#5a7a40",letterSpacing:2,marginBottom:8}},"POR DÍA"),
+      porDia.length===0
+        ?h("div",{style:{color:"#3a5a28",textAlign:"center",padding:"32px 0"}},"Sin registros esta semana")
+        :porDia.map(d=>h("div",{key:d.dia},
+            h("button",{onClick:()=>setVerDia(verDia===d.dia?null:d.dia),
+              style:{...C.card,width:"100%",textAlign:"left",border:"none",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:verDia===d.dia?2:8}},
+              h("div",null,
+                h("div",{style:{fontSize:14,fontWeight:700,color:"#b0d880",marginBottom:3}},d.dia),
+                h("div",{style:{fontSize:12,color:"#7a9860"}},d.regs.length+" actividad"+(d.regs.length!==1?"es":"")+" · ",
+                  h("span",{style:{color:"#e8a030",fontWeight:700}},fmtMXN(d.raya)))
+              ),
+              h("span",{style:{color:"#5a7a48",fontSize:17}},verDia===d.dia?"▲":"▼")
+            ),
+            verDia===d.dia&&d.regs.map((r,i)=>h("div",{key:i,style:{...C.card,background:"rgba(255,255,255,0.02)",marginBottom:6}},
+              h("div",{style:{fontSize:12,fontWeight:700,color:"#90c848",marginBottom:2}},r.rancho),
+              h("div",{style:{fontSize:12,color:"#c0d888",fontStyle:"italic",marginBottom:3}},r.actividad),
+              r.jornaleros&&r.jornaleros.length>0&&h("div",{style:{fontSize:11,color:"#7a9868",marginBottom:r.nota?2:0}},
+                r.jornaleros.map(j=>j.nombre+(j.pago?` ${fmtMXN(j.pago)}`:"")).join(" · ")
+              ),
+              r.nota&&h("div",{style:{fontSize:11,color:"#5a7040",fontStyle:"italic"}},"* "+r.nota)
+            ))
+          ))
+    )
+  );
+}
+
+// ── PantallaConfig ────────────────────────────────────────────────────────────
+function PantallaConfig({onVolver}){
+  const [list,setList]=useState(()=>load("jornaleros_config",DEFAULT_JORNALEROS));
+  const [nuevo,setNuevo]=useState("");
+  const add=()=>{if(!nuevo.trim())return;const l=[...list,nuevo.trim()];setList(l);save("jornaleros_config",l);setNuevo("");};
+  const del=i=>{const l=list.filter((_,x)=>x!==i);setList(l);save("jornaleros_config",l);};
+  return h("div",null,
+    h(Hdr,{titulo:"⚙️ Jornaleros",sub:"Configuración",onBack:onVolver}),
+    h("div",{style:{padding:"14px"}},
+      h("div",{style:{fontSize:12,color:"#6a8a50",marginBottom:12}},"Administra la lista de jornaleros activos"),
+      list.map((j,i)=>h("div",{key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"13px 14px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:11,marginBottom:8}},
+        h("span",{style:{fontSize:15,color:"#c0d8a0"}},j),
+        h("button",{onClick:()=>del(i),style:{background:"none",border:"none",color:"#905050",cursor:"pointer",fontSize:20}},"×")
+      )),
+      h("div",{style:{display:"flex",gap:9,marginTop:16}},
+        h("input",{value:nuevo,onChange:e=>setNuevo(e.target.value),placeholder:"Nombre del jornalero",
+          style:{...C.inp,flex:1},onKeyDown:e=>e.key==="Enter"&&add()}),
+        h("button",{onClick:add,style:{background:"#2a6a14",border:"none",borderRadius:9,color:"#c8f090",padding:"0 18px",fontSize:20,cursor:"pointer"}},"+")
+      )
+    )
+  );
+}
+
+// ── PantallaCombustible (menú del módulo) ────────────────────────────────────
+function PantallaCombustible({onVolver}){
+  const [pasoComb,setPasoComb]=useState("menu");
+  // menu | cargar | usar | stock
+
+  if(pasoComb==="cargar") return h(FormCargaCombustible,{onVolver:()=>setPasoComb("menu"),onSaved:()=>setPasoComb("stock")});
+  if(pasoComb==="usar") return h(FormConsumoCombustible,{onVolver:()=>setPasoComb("menu"),onSaved:()=>setPasoComb("stock")});
+  if(pasoComb==="stock") return h(PantallaStockCombustible,{onVolver:()=>setPasoComb("menu")});
+
+  return h("div",null,
+    h(Hdr,{titulo:"🛢️ Combustible",sub:"Diesel y gasolina",onBack:onVolver}),
+    h("div",{style:{padding:"16px"}},
+      h("button",{onClick:()=>setPasoComb("cargar"),style:{...C.bigBtn,marginBottom:12,background:"linear-gradient(135deg,#2a6a14,#1e5010)"}},"⛽ Cargar combustible"),
+      h("button",{onClick:()=>setPasoComb("usar"),style:{...C.bigBtn,marginBottom:12,background:"linear-gradient(135deg,#7a5a14,#5a4010)"}},"🚜 Usar combustible"),
+      h("button",{onClick:()=>setPasoComb("stock"),style:{...C.ghost,marginBottom:0,padding:"14px"}},"📊 Ver stock actual")
+    )
+  );
+}
+
+// ── Form: Cargar combustible (entrada a garrafas) ────────────────────────────
+function FormCargaCombustible({onVolver,onSaved}){
+  const [tipo,setTipo]=useState("");
+  const [lugar,setLugar]=useState("");
+  const [litros,setLitros]=useState("");
+  const [total,setTotal]=useState("");
+  const [foto,setFoto]=useState(null);
+  const [notas,setNotas]=useState("");
+  const [enviando,setEnviando]=useState(false);
+  const [error,setError]=useState("");
+
+  const litrosNum = parseFloat(litros)||0;
+  const totalNum = parseFloat(total)||0;
+  const precioL = litrosNum>0 ? (totalNum/litrosNum) : 0;
+
+  const fileToBase64 = file => new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>res(r.result.split(",")[1]);
+    r.onerror=rej;
+    r.readAsDataURL(file);
+  });
+
+  const guardar = async () => {
+    if(!tipo){setError("Selecciona Diesel o Gasolina");return;}
+    if(!litrosNum){setError("Captura los litros");return;}
+    if(!totalNum){setError("Captura el total pagado");return;}
+    setError("");setEnviando(true);
+    try{
+      const payload = {
+        accion:"guardar_carga_combustible",
+        fecha: new Date().toISOString(),
+        tipo,lugar,litros:litrosNum,total:totalNum,
+        capturado_por:"Encargado",notas
+      };
+      if(foto){
+        payload.foto_base64 = await fileToBase64(foto);
+        payload.foto_filename = foto.name;
+      }
+      const res = await fetch(SHEETS_URL,{method:"POST",body:JSON.stringify(payload)});
+      const data = await res.json();
+      if(data.ok){ onSaved(); }
+      else { setError(data.error||"Error al guardar"); }
+    } catch(e){ setError(e.toString()); }
+    finally{ setEnviando(false); }
+  };
+
+  return h("div",null,
+    h(Hdr,{titulo:"⛽ Cargar combustible",sub:"Entrada a garrafa",onBack:onVolver}),
+    h("div",{style:{padding:"14px 14px 110px"}},
+      error && h("div",{style:{padding:12,background:"rgba(200,80,60,0.12)",border:"1px solid rgba(200,80,60,0.3)",borderRadius:10,color:"#e08060",marginBottom:14,fontSize:13}}, "⚠️ "+error),
+      h("div",{style:{marginBottom:14}},
+        h("label",{style:lbl},"Tipo de combustible"),
+        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}},
+          ["Diesel","Gasolina"].map(t=>h("button",{key:t,onClick:()=>setTipo(t),style:{...chip(tipo===t),padding:"15px"}},t))
+        )
+      ),
+      h("div",{style:{marginBottom:14}},
+        h("label",{style:lbl},"Lugar de carga"),
+        h("input",{value:lugar,onChange:e=>setLugar(e.target.value),placeholder:"Ej: Pemex Carretera, Pipa Don Juan",style:C.inp})
+      ),
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}},
+        h("div",null,
+          h("label",{style:lbl},"Litros"),
+          h("input",{type:"number",step:"0.01",value:litros,onChange:e=>setLitros(e.target.value),placeholder:"Ej: 200",style:C.inp})
+        ),
+        h("div",null,
+          h("label",{style:lbl},"Total $"),
+          h("input",{type:"number",step:"0.01",value:total,onChange:e=>setTotal(e.target.value),placeholder:"Ej: 5800",style:C.inp})
+        )
+      ),
+      precioL>0 && h("div",{style:{padding:11,background:"rgba(80,160,30,0.1)",border:"1px solid rgba(120,200,80,0.2)",borderRadius:10,marginBottom:14,textAlign:"center"}},
+        h("span",{style:{fontSize:11,color:"#7a9858"}},"PRECIO POR LITRO: "),
+        h("span",{style:{fontSize:16,fontWeight:700,color:"#e8c870"}},fmtMXN(precioL))
+      ),
+      h("div",{style:{marginBottom:14}},
+        h("label",{style:lbl},"Foto del ticket (opcional)"),
+        h("input",{type:"file",accept:"image/*",capture:"environment",
+          onChange:e=>setFoto(e.target.files[0]||null),
+          style:{...C.inp,padding:"10px",cursor:"pointer"}}),
+        foto && h("div",{style:{fontSize:12,color:"#90c848",marginTop:6}},"📎 "+foto.name+" ("+(foto.size/1024).toFixed(0)+" KB)")
+      ),
+      h("div",{style:{marginBottom:14}},
+        h("label",{style:lbl},"Notas (opcional)"),
+        h("textarea",{value:notas,onChange:e=>setNotas(e.target.value),rows:2,placeholder:"Ej: Cargué para arado de la próxima semana",style:{...C.inp,resize:"none",lineHeight:1.5}})
+      )
+    ),
+    h(FixBot,null,
+      h("button",{onClick:guardar,disabled:enviando,style:{...C.bigBtn,opacity:enviando?0.6:1}}, enviando?"⏳ Guardando...":"💾 Guardar carga")
+    )
+  );
+}
+
+// ── Form: Usar combustible (salida) ──────────────────────────────────────────
+function FormConsumoCombustible({onVolver,onSaved}){
+  const EQUIPOS = ["Tractor","Desbrozadora","Bomba de aspersión","Bomba sistema de riego","Otro"];
+  const [tipo,setTipo]=useState("");
+  const [equipo,setEquipo]=useState("");
+  const [equipoOtro,setEquipoOtro]=useState("");
+  const [litros,setLitros]=useState("");
+  const [actividad,setActividad]=useState("");
+  const [operador,setOperador]=useState("");
+  const [notas,setNotas]=useState("");
+  const [enviando,setEnviando]=useState(false);
+  const [error,setError]=useState("");
+
+  const jornaleros = load("jornaleros_config",DEFAULT_JORNALEROS);
+
+  const guardar = async () => {
+    if(!tipo){setError("Selecciona Diesel o Gasolina");return;}
+    if(!equipo){setError("Selecciona el equipo");return;}
+    if(equipo==="Otro" && !equipoOtro.trim()){setError("Especifica el equipo");return;}
+    if(!parseFloat(litros)){setError("Captura los litros");return;}
+    setError("");setEnviando(true);
+    try{
+      const payload = {
+        accion:"guardar_consumo_combustible",
+        fecha: new Date().toISOString(),
+        tipo,
+        equipo: equipo==="Otro" ? ("Otro: "+equipoOtro.trim()) : equipo,
+        litros: parseFloat(litros),
+        actividad, operador,
+        capturado_por:"Encargado", notas
+      };
+      const res = await fetch(SHEETS_URL,{method:"POST",body:JSON.stringify(payload)});
+      const data = await res.json();
+      if(data.ok){ onSaved(); }
+      else { setError(data.error||"Error al guardar"); }
+    } catch(e){ setError(e.toString()); }
+    finally{ setEnviando(false); }
+  };
+
+  return h("div",null,
+    h(Hdr,{titulo:"🚜 Usar combustible",sub:"Salida de garrafa",onBack:onVolver}),
+    h("div",{style:{padding:"14px 14px 110px"}},
+      error && h("div",{style:{padding:12,background:"rgba(200,80,60,0.12)",border:"1px solid rgba(200,80,60,0.3)",borderRadius:10,color:"#e08060",marginBottom:14,fontSize:13}}, "⚠️ "+error),
+      h("div",{style:{marginBottom:14}},
+        h("label",{style:lbl},"Tipo de combustible"),
+        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}},
+          ["Diesel","Gasolina"].map(t=>h("button",{key:t,onClick:()=>setTipo(t),style:{...chip(tipo===t),padding:"15px"}},t))
+        )
+      ),
+      h("div",{style:{marginBottom:14}},
+        h("label",{style:lbl},"Equipo"),
+        EQUIPOS.map(eq=>h("button",{key:eq,onClick:()=>setEquipo(eq),style:{...chip(equipo===eq),marginBottom:8,borderRadius:13}},eq)),
+        equipo==="Otro" && h("input",{value:equipoOtro,onChange:e=>setEquipoOtro(e.target.value),placeholder:"¿Qué equipo? Ej: Generador, Soldador",style:{...C.inp,marginTop:8}})
+      ),
+      h("div",{style:{marginBottom:14}},
+        h("label",{style:lbl},"Litros usados"),
+        h("input",{type:"number",step:"0.01",value:litros,onChange:e=>setLitros(e.target.value),placeholder:"Ej: 50",style:C.inp})
+      ),
+      h("div",{style:{marginBottom:14}},
+        h("label",{style:lbl},"Actividad (opcional)"),
+        h("select",{value:actividad,onChange:e=>setActividad(e.target.value),style:C.inp},
+          h("option",{value:""},"— Sin asignar —"),
+          ACTIVIDADES.map(a=>h("option",{key:a,value:a},a))
+        )
+      ),
+      h("div",{style:{marginBottom:14}},
+        h("label",{style:lbl},"Operador (opcional)"),
+        h("select",{value:operador,onChange:e=>setOperador(e.target.value),style:C.inp},
+          h("option",{value:""},"— Sin asignar —"),
+          jornaleros.map(j=>h("option",{key:j,value:j},j))
+        )
+      ),
+      h("div",{style:{marginBottom:14}},
+        h("label",{style:lbl},"Notas (opcional)"),
+        h("textarea",{value:notas,onChange:e=>setNotas(e.target.value),rows:2,placeholder:"Ej: Llené el tractor",style:{...C.inp,resize:"none",lineHeight:1.5}})
+      )
+    ),
+    h(FixBot,null,
+      h("button",{onClick:guardar,disabled:enviando,style:{...C.bigBtn,opacity:enviando?0.6:1}}, enviando?"⏳ Guardando...":"💾 Guardar consumo")
+    )
+  );
+}
+
+// ── PantallaStockCombustible ─────────────────────────────────────────────────
+function PantallaStockCombustible({onVolver}){
+  const [stock,setStock] = useState([]);
+  const [cargas,setCargas] = useState([]);
+  const [consumos,setConsumos] = useState([]);
+  const [loading,setLoading] = useState(true);
+  const [error,setError] = useState("");
+
+  useEffect(()=>{
+    setLoading(true);
+    Promise.all([
+      fetch(SHEETS_URL+"?accion=obtener_stock_combustible").then(r=>r.json()),
+      fetch(SHEETS_URL+"?accion=obtener_cargas_combustible").then(r=>r.json()),
+      fetch(SHEETS_URL+"?accion=obtener_consumos_combustible").then(r=>r.json())
+    ]).then(([s,c,k])=>{
+      if(s.ok) setStock(s.stock||[]);
+      if(c.ok) setCargas((c.cargas||[]).slice(0,5));
+      if(k.ok) setConsumos((k.consumos||[]).slice(0,5));
+      setLoading(false);
+    }).catch(e=>{setError(e.toString());setLoading(false);});
+  },[]);
+
+  const fmtFechaCorta = v => {
+    if(!v) return "—";
+    try{
+      const d = new Date(v);
+      if(isNaN(d.getTime())) return String(v);
+      return d.getDate()+"/"+(d.getMonth()+1);
+    }catch{return String(v);}
+  };
+
+  return h("div",null,
+    h(Hdr,{titulo:"📊 Stock de Combustible",sub:"Garrafas en el rancho",onBack:onVolver}),
+    h("div",{style:{padding:"14px"}},
+      loading && h("div",{style:{color:"#6a8a50",textAlign:"center",padding:30}},"Cargando..."),
+      error && h("div",{style:{color:"#e08060",padding:14}}, "Error: "+error),
+      !loading && stock.map((s,i)=>h("div",{key:i,style:{...C.card,padding:"16px"}},
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
+          h("div",null,
+            h("div",{style:{fontSize:11,color:"#6a9050",letterSpacing:1.5}},"COMBUSTIBLE"),
+            h("div",{style:{fontSize:20,fontWeight:700,color:"#c8e898"}},s.tipo)
+          ),
+          h("div",{style:{textAlign:"right"}},
+            h("div",{style:{fontSize:11,color:"#5a7a40"}},"STOCK ACTUAL"),
+            h("div",{style:{fontSize:24,fontWeight:800,color:Number(s.stock_actual)<0?"#e08060":Number(s.stock_actual)<30?"#e8c060":"#90c848"}},fmtNum(s.stock_actual)+" L")
+          )
+        ),
+        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+          h("div",null,
+            h("div",{style:{fontSize:10,color:"#5a7a40",letterSpacing:1}},"CARGADO"),
+            h("div",{style:{fontSize:13,color:"#90c848"}},fmtNum(s.litros_cargados)+" L")
+          ),
+          h("div",null,
+            h("div",{style:{fontSize:10,color:"#5a7a40",letterSpacing:1}},"CONSUMIDO"),
+            h("div",{style:{fontSize:13,color:"#c8a030"}},fmtNum(s.litros_consumidos)+" L")
+          ),
+          h("div",null,
+            h("div",{style:{fontSize:10,color:"#5a7a40",letterSpacing:1}},"GASTO"),
+            h("div",{style:{fontSize:13,color:"#e8a030"}},fmtMXN(s.gasto_total))
+          )
+        )
+      )),
+      !loading && cargas.length>0 && h("div",{style:{marginTop:18}},
+        h("div",{style:{fontSize:10,color:"#5a7a40",letterSpacing:2,marginBottom:8}},"ÚLTIMAS CARGAS"),
+        cargas.map((c,i)=>h("div",{key:i,style:{...C.card,padding:"10px 14px"}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+            h("div",null,
+              h("div",{style:{fontSize:11,color:"#6a9050"}}, fmtFechaCorta(c.fecha)+" · "+c.tipo),
+              h("div",{style:{fontSize:13,color:"#c8e898"}}, c.lugar||"—")
+            ),
+            h("div",{style:{textAlign:"right"}},
+              h("div",{style:{fontSize:13,fontWeight:700,color:"#90c848"}},fmtNum(c.litros)+" L"),
+              h("div",{style:{fontSize:11,color:"#e8a030"}},fmtMXN(c.total))
+            )
+          )
+        ))
+      ),
+      !loading && consumos.length>0 && h("div",{style:{marginTop:18}},
+        h("div",{style:{fontSize:10,color:"#5a7a40",letterSpacing:2,marginBottom:8}},"ÚLTIMOS CONSUMOS"),
+        consumos.map((k,i)=>h("div",{key:i,style:{...C.card,padding:"10px 14px"}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+            h("div",null,
+              h("div",{style:{fontSize:11,color:"#6a9050"}}, fmtFechaCorta(k.fecha)+" · "+k.tipo),
+              h("div",{style:{fontSize:13,color:"#c8e898"}}, k.equipo||"—"),
+              k.actividad && h("div",{style:{fontSize:11,color:"#8aa870",fontStyle:"italic"}}, k.actividad)
+            ),
+            h("div",{style:{textAlign:"right"}},
+              h("div",{style:{fontSize:13,fontWeight:700,color:"#c8a030"}},fmtNum(k.litros)+" L"),
+              k.operador && h("div",{style:{fontSize:11,color:"#8aa870"}}, k.operador)
+            )
+          )
+        ))
+      )
+    )
+  );
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+function App(){
+  const [pantalla,setPantalla]=useState("registro");
+  const sNum=semNum();
+  return h("div",{style:{background:"#0e1a0a",minHeight:"100vh",fontFamily:"Georgia,serif",color:"#d8ecc0"}},
+    pantalla==="registro"&&h(PantallaRegistro,{semanaNum:sNum,onVerResumen:()=>setPantalla("resumen"),onConfig:()=>setPantalla("config"),onCombustible:()=>setPantalla("combustible"),onCiclos:()=>setPantalla("ciclos")}),
+    pantalla==="resumen"&&h(PantallaResumen,{semanaNum:sNum,onVolver:()=>setPantalla("registro")}),
+    pantalla==="config"&&h(PantallaConfig,{onVolver:()=>setPantalla("registro")}),
+    pantalla==="combustible"&&h(PantallaCombustible,{onVolver:()=>setPantalla("registro")}),
+    pantalla==="ciclos"&&h(PantallaCiclos,{onVolver:()=>setPantalla("registro")})
+  );
+}
+function PantallaCiclos({onVolver}){
+  const [ciclos,setCiclos]=useState([]);
+  const [cargando,setCargando]=useState(true);
+  const [msg,setMsg]=useState("");
+  const [busy,setBusy]=useState("");
+  const [paso,setPaso]=useState("lista");
+  const [rId,setRId]=useState("");
+  const [sId,setSId]=useState("");
+  const rancho = RANCHOS_CONFIG.find(function(r){return r.id===rId;});
+  const seccion = rancho ? rancho.secciones.find(function(x){return x.id===sId;}) : null;
+  function hoyLocal(){var d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+  function fdate(v){if(!v)return "—";var m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);if(m){var me=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];return parseInt(m[3],10)+" "+me[parseInt(m[2],10)-1];}return String(v).substring(0,10);}
+  function pdate(v){var m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);if(m)return new Date(parseInt(m[1]),parseInt(m[2])-1,parseInt(m[3]));return new Date(v);}
+  function dias(ini){try{var a=pdate(ini);var b=new Date();var d=Math.floor((b-a)/86400000)+1;return d>0?d:1;}catch(e){return "—";}}
+  function cargar(){setCargando(true);fetch(SHEETS_URL+"?accion=obtener_ciclos&estado=abierto").then(function(r){return r.json();}).then(function(d){setCiclos((d&&d.ciclos)||[]);setCargando(false);}).catch(function(){setCargando(false);});}
+  useEffect(function(){cargar();},[]);
+  function elegirActividad(act){var lugar = rancho ? (rancho.nombre + (seccion?(" · "+seccion.nombre+(seccion.ha?(" ("+seccion.ha+")"):"")):"")) : "";setBusy("ini");setMsg("");fetch(SHEETS_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({accion:"iniciar_ciclo",rancho:lugar,seccion:seccion?seccion.nombre:"",actividad:act,fecha_inicio:hoyLocal(),capturado_por:"app"})}).then(function(r){return r.json();}).then(function(d){setBusy("");if(d.ok){setPaso("lista");setRId("");setSId("");setMsg("Ciclo iniciado ✓");cargar();setTimeout(function(){setMsg("");},2500);}else setMsg("No se pudo: "+(d.error||"error"));}).catch(function(){setBusy("");setMsg("Error de conexión");});}
+  function finalizar(c){setBusy(c.id_ciclo);setMsg("");fetch(SHEETS_URL+"?accion=finalizar_ciclo&id_ciclo="+encodeURIComponent(c.id_ciclo)+"&fecha_fin="+hoyLocal()).then(function(r){return r.json();}).then(function(d){setBusy("");if(d.ok){setMsg("Ciclo finalizado ✓");cargar();setTimeout(function(){setMsg("");},2500);}else setMsg("No se pudo");}).catch(function(){setBusy("");setMsg("Error de conexión");});}
+  var box={maxWidth:560,margin:"0 auto",padding:"16px"};
+  var btnBig={width:"100%",padding:"14px",borderRadius:12,border:"1px solid rgba(120,180,60,0.4)",background:"rgba(120,180,60,0.15)",color:"#c8f090",fontSize:16,fontWeight:700,cursor:"pointer",marginTop:14};
+  var item={width:"100%",textAlign:"left",padding:"14px",borderRadius:12,border:"1px solid rgba(120,180,60,0.2)",background:"rgba(255,255,255,0.04)",color:"#d8f0b0",fontSize:16,cursor:"pointer",marginBottom:8};
+  return h("div",{style:box},
+    h("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:14}},
+      h("button",{onClick:function(){ if(paso==="lista") onVolver(); else setPaso("lista"); },style:{background:"none",border:"none",color:"#9cc070",fontSize:22,cursor:"pointer"}},"←"),
+      h("div",{style:{fontSize:20,fontWeight:800,color:"#b8e870"}},"🔄 Ciclos")
+    ),
+    msg && h("div",{style:{padding:"10px 12px",borderRadius:10,background:"rgba(120,180,60,0.15)",color:"#c8f090",marginBottom:12,fontSize:14}},msg),
+    paso==="lista" && h("div",null,
+      h("div",{style:{fontSize:13,color:"#8aa870",marginBottom:8}},"Aplicaciones en curso"),
+      cargando && h("div",{style:{color:"#7a9058",padding:14}},"Cargando…"),
+      !cargando && ciclos.length===0 && h("div",{style:{color:"#7a9058",fontStyle:"italic",padding:"6px 0 10px"}},"No hay ciclos abiertos"),
+      ciclos.map(function(c,i){return h("div",{key:c.id_ciclo||i,style:{borderRadius:12,border:"1px solid rgba(120,180,60,0.22)",borderLeft:"3px solid #7ac043",background:"rgba(255,255,255,0.04)",padding:"12px 14px",marginBottom:10}},
+        h("div",{style:{fontSize:15,fontWeight:700,color:"#c8e898"}},c.actividad||"—"),
+        h("div",{style:{fontSize:13,color:"#a0c870",marginTop:2}},c.rancho||""),
+        h("div",{style:{fontSize:12,color:"#8aa870",marginTop:4}},"Inició: "+fdate(c.fecha_inicio)+" · "+dias(c.fecha_inicio)+" día(s)"),
+        h("button",{onClick:function(){finalizar(c);},disabled:busy===c.id_ciclo,style:{marginTop:10,padding:"10px 16px",borderRadius:10,border:"1px solid rgba(120,180,60,0.55)",background:"rgba(120,180,60,0.25)",color:"#c8f090",fontSize:14,fontWeight:700,cursor:"pointer"}},busy===c.id_ciclo?"…":"✓ Finalizar ciclo")
+      );}),
+      h("button",{onClick:function(){setPaso("rancho");},style:btnBig},"▶️ Iniciar ciclo")
+    ),
+    paso==="rancho" && h("div",null,
+      h("div",{style:{fontSize:16,fontWeight:700,color:"#c8e898",marginBottom:10}},"¿En qué rancho?"),
+      RANCHOS_CONFIG.map(function(r){return h("button",{key:r.id,onClick:function(){ setRId(r.id); setSId(""); setPaso((r.secciones&&r.secciones.length)?"seccion":"actividad"); },style:item},r.nombre);})
+    ),
+    paso==="seccion" && rancho && h("div",null,
+      h("div",{style:{fontSize:16,fontWeight:700,color:"#c8e898",marginBottom:10}},"¿Qué sección?"),
+      rancho.secciones.map(function(x){return h("button",{key:x.id,onClick:function(){ setSId(x.id); setPaso("actividad"); },style:item},x.nombre+(x.ha?(" · "+x.ha):""));})
+    ),
+    paso==="actividad" && h("div",null,
+      h("div",{style:{fontSize:16,fontWeight:700,color:"#c8e898",marginBottom:10}},"¿Qué actividad?"),
+      busy==="ini" && h("div",{style:{color:"#9cc070",padding:10}},"Iniciando…"),
+      ACTIVIDADES.map(function(a,i){return h("button",{key:i,onClick:function(){elegirActividad(a);},disabled:busy==="ini",style:item},a);})
+    )
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("app")).render(h(App,null));
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<title>Bitácora del Rancho</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:#0e1a0a;font-family:Georgia,serif;color:#d8ecc0;min-height:100vh;}
+#app{max-width:480px;margin:0 auto;min-height:100vh;}
+input,select,textarea,button{font-family:Georgia,serif;}
+select option{background:#1a2e12;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script>
+const {useState,useEffect,createElement:h} = React;
+
+// ── Google Sheets ─────────────────────────────────────────────────────────────
+const SHEETS_URL = "https://script.google.com/macros/s/AKfycbyDQAEPlf-By1gL1RhKQkDb5YAeEypB8vMaXupMl2qx2dtQFsG4n9kHrFSWiMCpQw_b/exec";
+
+// Cuenta cuántos registros hay pendientes de enviar (sin la marca "enviado")
+function contarPendientes(semanaNum) {
+  let n = 0;
+  DIAS.forEach(dia => {
+    const regs = load(`s${semanaNum}_${dia}`, []);
+    regs.forEach(r => { if (!r.enviado) n++; });
+  });
+  return n;
+}
+
+async function enviarASheets(semanaNum) {
+  // 1. Junta SOLO los registros que aún no se han enviado
+  const registros = [];
+  const indice = []; // { dia, id } para marcar después de enviar
+  DIAS.forEach(dia => {
+    const regs = load(`s${semanaNum}_${dia}`, []);
+    regs.forEach(r => {
+      if (!r.enviado) {
+        registros.push({ ...r, dia });
+        indice.push({ dia, id: r.id });
+      }
+    });
+  });
+
+  // 2. Si no hay nada nuevo, no llama al servidor
+  if (registros.length === 0) {
+    return { enviados: 0 };
+  }
+
+  // 3. Envía solo los nuevos
+  const res = await fetch(SHEETS_URL, {
+    method: "POST",
+    body: JSON.stringify({ semana: semanaNum, registros }),
+  });
+  if (!res.ok) throw new Error("Error " + res.status);
+  const data = await res.json();
+  if (data.status !== "ok") throw new Error(data.message || "Error desconocido");
+
+  // 4. Marca los registros como enviados en localStorage
+  const porDia = {};
+  indice.forEach(({ dia, id }) => {
+    if (!porDia[dia]) porDia[dia] = new Set();
+    porDia[dia].add(id);
+  });
+  Object.keys(porDia).forEach(dia => {
+    const regs = load(`s${semanaNum}_${dia}`, []);
+    const actualizados = regs.map(r =>
+      porDia[dia].has(r.id) ? { ...r, enviado: true } : r
+    );
+    save(`s${semanaNum}_${dia}`, actualizados);
+  });
+
+  return { enviados: registros.length };
+}
+
+// ── Catálogos ──────────────────────────────────────────────────────────────
+const RANCHOS_CONFIG = [
+  {
+    id:"vista_h", nombre:"Rancho Vista Hermosa",
+    secciones:[
+      {id:"tabla1",      nombre:"Tabla 1",       ha:"8 ha"},
+      {id:"tabla2",      nombre:"Tabla 2",       ha:"5 ha"},
+      {id:"plantel",     nombre:"Plantel",        ha:"8.5 ha"},
+      {id:"plantel_nvo", nombre:"Plantel Nuevo",  ha:"3.5 ha"},
+    ]
+  },
+  {
+    id:"loma_bonita", nombre:"Rancho Loma Bonita",
+    secciones:[
+      {id:"naranjal1", nombre:"Naranjal 1", ha:"5.84 ha"},
+      {id:"naranjal2", nombre:"Naranjal 2", ha:"1.5 ha"},
+      {id:"limonar",   nombre:"Limonar",    ha:"6 ha"},
+    ]
+  },
+  {
+    id:"la_union", nombre:"Rancho La Unión",
+    secciones:[
+      {id:"tabla1", nombre:"Tabla 1", ha:""},
+      {id:"tabla2", nombre:"Tabla 2", ha:""},
+      {id:"tabla3", nombre:"Tabla 3", ha:""},
+    ]
+  },
+  {id:"arenal",     nombre:"Rancho El Arenal", secciones:[]},
+  {id:"casa",       nombre:"Casa La Unión",    secciones:[]},
+  {id:"bellissima", nombre:"Bellissima",        secciones:[]},
+];
+
+const ACTIVIDADES = [
+  "Fumigar Herbicida c/Bomba Mochila (Tambo 200lt)",
+  "Fumigar Herbicida c/Tractor (Bomba 400lt)",
+  "Foliar c/Moto-Bombas (Tambo 200lt)",
+  "Foliar c/Bomba de Mochila",
+  "Foliar c/Tractor (Bomba 400lt)",
+  "Chapear c/Machete",
+  "Chapear c/Desbrozadoras",
+  "Chapear c/Tractor",
+  "Tirar Palos Secos c/Motosierra",
+  "Mantenimiento Linderos",
+  "Quitar Corriguela/Cucho/Bejuco/Rama Seca",
+  "Podar para Floración/Formación Plantel",
+  "Limpieza, Faena, Mandados",
+  "Azadón al Hilo",
+  "Arado c/Tractor",
+  "Cuidar",
+  "Resembrar Plantas",
+  "Regar",
+  "Operar Sistema de Riego",
+  "Cosechar",
+  "Fertilizar",
+  "Otra"
+];
+
+// Actividades que requieren capturar productos aplicados (agroquímicos)
+const ACTIVIDADES_CON_APLICACION = [
+  "Fumigar Herbicida c/Bomba Mochila (Tambo 200lt)",
+  "Fumigar Herbicida c/Tractor (Bomba 400lt)",
+  "Foliar c/Moto-Bombas (Tambo 200lt)",
+  "Foliar c/Bomba de Mochila",
+  "Foliar c/Tractor (Bomba 400lt)",
+  "Fertilizar",
+  "Operar Sistema de Riego"
+];
+
+// Volumen de mezcla sugerido según equipo (se prellena, editable)
+const VOLUMEN_SUGERIDO = {
+  "Fumigar Herbicida c/Bomba Mochila (Tambo 200lt)": 200,
+  "Fumigar Herbicida c/Tractor (Bomba 400lt)": 400,
+  "Foliar c/Moto-Bombas (Tambo 200lt)": 200,
+  "Foliar c/Bomba de Mochila": 20,
+  "Foliar c/Tractor (Bomba 400lt)": 400,
+  "Fertilizar": 0,
+  "Operar Sistema de Riego": 0
+};
+
+// Carga el catálogo de agroquímicos desde el Apps Script y lo cachea localmente
+async function loadCatalogo(forzar=false){
+  const cache = load("catalogo_agroquimicos", null);
+  const cacheTime = load("catalogo_agroquimicos_time", 0);
+  const UNA_HORA = 60*60*1000;
+  if(!forzar && cache && (Date.now()-cacheTime) < UNA_HORA){
+    return cache;
+  }
+  try{
+    const res = await fetch(SHEETS_URL+"?accion=obtener_catalogo", {method:"GET"});
+    const data = await res.json();
+    if(data.ok && Array.isArray(data.productos)){
+      save("catalogo_agroquimicos", data.productos);
+      save("catalogo_agroquimicos_time", Date.now());
+      return data.productos;
+    }
+  }catch(e){ console.error("Error cargando catálogo:", e); }
+  return cache || [];
+}
+
+const DIAS = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
+const DEFAULT_JORNALEROS = [
+  "Gonzalo","Macario","Valentín","Raúl","Ángel",
+  "Alfonso","Heriberto","Edwin","Hugo","Fernando",
+  "Felipe","Ignacio","Juan"
+];
+
+const fmtMXN = n => "$" + Number(n||0).toLocaleString("es-MX");
+const fmtNum = n => Number(n||0).toLocaleString("es-MX",{maximumFractionDigits:2});
+const hoy = () => { const d=new Date(); return DIAS[d.getDay()===0?6:d.getDay()-1]; };
+const semNum = () => { const n=new Date(),s=new Date(n.getFullYear(),0,1); return Math.ceil(((n-s)/86400000+s.getDay()+1)/7); };
+function load(k,def){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):def; }catch{ return def; }}
+function save(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{}}
+
+const getRanchoConfig = id => RANCHOS_CONFIG.find(r=>r.id===id);
+const getLugarLabel = (ranchoId, seccionId) => {
+  const rc = getRanchoConfig(ranchoId);
+  if(!rc) return "";
+  if(!seccionId || !rc.secciones.length) return rc.nombre;
+  const sec = rc.secciones.find(s=>s.id===seccionId);
+  return rc.nombre + (sec ? " · " + sec.nombre + (sec.ha?" ("+sec.ha+")":"") : "");
+};
+
+const C = {
+  hdr:{background:"linear-gradient(135deg,#1a3a0e,#142e0a)",padding:"14px 16px",borderBottom:"1px solid rgba(120,200,60,0.18)"},
+  inp:{width:"100%",background:"rgba(255,255,255,0.07)",border:"1px solid rgba(140,200,80,0.22)",borderRadius:10,color:"#e8f8d0",padding:"12px 13px",fontSize:15,outline:"none",boxSizing:"border-box"},
+  bigBtn:{width:"100%",background:"linear-gradient(135deg,#2a6a14,#1e5010)",border:"none",borderRadius:12,color:"#c8f090",padding:"15px",fontSize:16,fontWeight:700,cursor:"pointer"},
+  ghost:{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,color:"#8aaa70",padding:"11px 14px",fontSize:14,cursor:"pointer",width:"100%"},
+  card:{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(120,180,60,0.14)",borderRadius:12,padding:"13px 14px",marginBottom:9},
+};
+const chip = active => ({
+  background:active?"rgba(80,160,30,0.28)":"rgba(255,255,255,0.05)",
+  border:`2px solid ${active?"#70c040":"rgba(255,255,255,0.1)"}`,
+  borderRadius:12,color:active?"#d8f8a0":"#7a9a68",
+  padding:"14px",fontSize:15,cursor:"pointer",width:"100%",textAlign:"left",fontWeight:active?700:400,display:"block"
+});
+const lbl = {fontSize:10,color:"#6a9050",letterSpacing:1.8,textTransform:"uppercase",display:"block",marginBottom:5};
+
+function Hdr({titulo,sub,onBack}){
+  return h("div",{style:C.hdr},
+    h("div",{style:{display:"flex",alignItems:"center",gap:12}},
+      h("button",{onClick:onBack,style:{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:9,color:"#8ab060",padding:"9px 13px",fontSize:18,cursor:"pointer"}},"←"),
+      h("div",null,
+        sub&&h("div",{style:{fontSize:10,color:"#5a8040",letterSpacing:2,marginBottom:1}},sub.toUpperCase()),
+        h("div",{style:{fontSize:17,fontWeight:700,color:"#b8e870"}},titulo)
+      )
+    )
+  );
+}
+function FixBot({children}){
+  return h("div",{style:{position:"fixed",bottom:0,left:0,right:0,maxWidth:480,margin:"0 auto",padding:"12px 14px 18px",background:"linear-gradient(to top,#0e1a0a 70%,transparent)"}},children);
+}
+
+// ── Botón Google Sheets ───────────────────────────────────────────────────────
+function BtnSheets({semanaNum, refreshKey}){
+  const [estado,setEstado] = useState("idle");
+  const [pendientes,setPendientes] = useState(0);
+
+  // Recalcula pendientes cada vez que cambia la semana o se guarda algo
+  useEffect(()=>{
+    setPendientes(contarPendientes(semanaNum));
+  },[semanaNum, refreshKey, estado]);
+
+  const enviar = async () => {
+    if (pendientes === 0) {
+      setEstado("nada");
+      setTimeout(()=>setEstado("idle"),2500);
+      return;
+    }
+    setEstado("subiendo");
+    try {
+      const r = await enviarASheets(semanaNum);
+      setEstado("ok");
+      setPendientes(0);
+      setTimeout(()=>setEstado("idle"),3000);
+    } catch(e) {
+      console.error(e);
+      setEstado("error");
+      setTimeout(()=>setEstado("idle"),3000);
+    }
+  };
+
+  const textoIdle = pendientes > 0
+    ? `Guardar en Google Sheets (${pendientes} nuevo${pendientes!==1?"s":""})`
+    : "Guardar en Google Sheets";
+
+  const config = {
+    idle:     {icon:"📊", texto:textoIdle,                  bg:"linear-gradient(135deg,#1a73e8,#1557b0)"},
+    subiendo: {icon:"⏳", texto:"Enviando...",              bg:"linear-gradient(135deg,#555,#333)"},
+    ok:       {icon:"✅", texto:"¡Guardado en Sheets!",     bg:"linear-gradient(135deg,#1a7a1a,#155a15)"},
+    nada:     {icon:"✓",  texto:"Sin cambios nuevos",       bg:"linear-gradient(135deg,#3a5a28,#2a4020)"},
+    error:    {icon:"❌", texto:"Error — intenta de nuevo", bg:"linear-gradient(135deg,#aa2020,#881515)"},
+  };
+  const c = config[estado];
+
+  return h("button",{
+    onClick:enviar,
+    disabled:estado==="subiendo",
+    style:{width:"100%",background:c.bg,border:"none",borderRadius:12,color:"#fff",
+      padding:"14px",fontSize:15,fontWeight:700,cursor:"pointer",
+      display:"flex",alignItems:"center",justifyContent:"center",gap:8,
+      opacity:estado==="subiendo"?0.8:1}
+  }, c.icon+" "+c.texto);
+}
+
+// ── FormActividad ─────────────────────────────────────────────────────────────
+function FormActividad({initial,onSave,onClose,jornalerosConfig,dia}){
+  const initRancho = initial ? RANCHOS_CONFIG.find(r=>r.nombre===initial.rancho||r.id===initial.ranchoId) : null;
+  const [paso,setPaso] = useState(initial ? 2 : 0);
+  const [ranchoId,setRanchoId] = useState(initial?.ranchoId || initRancho?.id || "");
+  const [seccionId,setSeccionId] = useState(initial?.seccionId || "");
+  const [actividad,setActividad] = useState(initial?.actividad || ACTIVIDADES[0]);
+  const [selJ,setSelJ] = useState(()=>{
+    if(initial?.jornaleros){const m={};initial.jornaleros.forEach(j=>{m[j.nombre]=String(j.pago);});return m;}
+    return{};
+  });
+  const [nota,setNota] = useState(initial?.nota||"");
 
   // Estado nuevo: aplicaciones de agroquímicos (lista de productos aplicados)
   const [aplicaciones, setAplicaciones] = useState(initial?.aplicaciones || []);
