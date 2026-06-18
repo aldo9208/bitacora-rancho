@@ -374,6 +374,10 @@ function TabAplicaciones() {
   const aplicaciones = (data && data.aplicaciones) || [];
   const [filtroProducto, setFiltroProducto] = useState("");
   const [filtroRancho, setFiltroRancho] = useState("");
+  const [editId, setEditId] = useState(null);
+  const [editVal, setEditVal] = useState("");
+  const [confAnular, setConfAnular] = useState(null);
+  const [errMsg, setErrMsg] = useState("");
   const productos = [...new Set(aplicaciones.map(a => a.nombre_producto).filter(Boolean))];
   const ranchos = [...new Set(aplicaciones.map(a => a.rancho).filter(Boolean))];
   const filtradas = aplicaciones.filter(a => {
@@ -385,25 +389,26 @@ function TabAplicaciones() {
 
   async function accionAplic(id, accion, extra) {
     if (busy) return;
-    setBusy(id);
+    setBusy(id); setErrMsg("");
     try {
       const url = SHEETS_URL + "?accion=" + accion + "&id=" + encodeURIComponent(id) + (extra||"");
       const res = await fetch(url);
       const d = await res.json();
       if (d.ok) setReload(x=>x+1);
-      else alert("No se pudo: " + (d.error||"error"));
-    } catch(e) { alert("Error: " + e); }
+      else setErrMsg("No se pudo: " + (d.error||"error"));
+    } catch(e) { setErrMsg("Error: " + e); }
     setBusy("");
   }
-  function anular(a) {
-    if (!confirm("¿Anular la aplicación de " + (a.nombre_producto||"") + " (" + fmtNum(a.cantidad_aplicada) + " " + (a.unidad||"") + ")? El inventario se recalcula. La fila se marca ANULADA, no se borra.")) return;
+  function anular(a) { setEditId(null); setErrMsg(""); setConfAnular(a.id_aplicacion); }
+  function confirmarAnular(a) {
+    setConfAnular(null);
     accionAplic(a.id_aplicacion, "anular_aplicacion", "&motivo=" + encodeURIComponent("anulada desde admin"));
   }
-  function corregir(a) {
-    const v = prompt("Nueva cantidad aplicada de " + (a.nombre_producto||"") + " (" + (a.unidad||"") + "):", a.cantidad_aplicada);
-    if (v === null) return;
-    const n = parseFloat(String(v).replace(",","."));
-    if (isNaN(n) || n < 0) { alert("Cantidad inválida"); return; }
+  function corregir(a) { setConfAnular(null); setErrMsg(""); setEditId(a.id_aplicacion); setEditVal(String(a.cantidad_aplicada)); }
+  function guardarCorr(a) {
+    const n = parseFloat(String(editVal).replace(",","."));
+    if (isNaN(n) || n < 0) { setErrMsg("Cantidad inválida"); return; }
+    setEditId(null);
     accionAplic(a.id_aplicacion, "corregir_aplicacion", "&cantidad=" + n);
   }
 
@@ -440,6 +445,7 @@ function TabAplicaciones() {
     loading && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30}}, "Cargando…"),
     error && h("div", {style:{color:"#e08060",padding:14,background:"rgba(200,80,60,0.1)",borderRadius:10}}, "Error: " + error),
     !loading && filtradas.length === 0 && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30,fontStyle:"italic"}}, "Sin aplicaciones registradas"),
+    errMsg && h("div", {style:{color:"#f0a090",padding:"10px 12px",background:"rgba(200,80,60,0.12)",border:"1px solid rgba(200,80,60,0.3)",borderRadius:10,marginBottom:12,fontSize:13}}, errMsg),
     !loading && grupos.map((g,gi) => {
       const ref = g.items[0];
       const costoGrupo = g.items.reduce((s,x)=>s+Number(x.costo_total||0),0);
@@ -474,10 +480,23 @@ function TabAplicaciones() {
               h("div", {style:{fontSize:11,color:"#c8a030"}}, fmtMXN(a.costo_total))
             )
           ),
-          h("div", {style:{display:"flex",gap:8,marginTop:6}},
-            h("button", {onClick:()=>corregir(a),disabled:busy===a.id_aplicacion,style:{padding:"4px 10px",background:"rgba(120,160,80,0.15)",border:"1px solid rgba(120,160,80,0.4)",borderRadius:7,color:"#b8e870",fontSize:11,fontWeight:600,cursor:"pointer"}}, "✏️ Corregir"),
-            h("button", {onClick:()=>anular(a),disabled:busy===a.id_aplicacion,style:{padding:"4px 10px",background:"rgba(200,80,60,0.15)",border:"1px solid rgba(200,80,60,0.4)",borderRadius:7,color:"#e89070",fontSize:11,fontWeight:600,cursor:"pointer"}}, busy===a.id_aplicacion ? "…" : "🚫 Anular")
-          )
+          editId===a.id_aplicacion
+            ? h("div", {style:{display:"flex",gap:8,marginTop:6,alignItems:"center",flexWrap:"wrap"}},
+                h("span", {style:{fontSize:11,color:"#7a9058"}}, "Nueva cantidad (" + (a.unidad||"") + "):"),
+                h("input", {type:"number",value:editVal,autoFocus:true,onChange:e=>setEditVal(e.target.value),style:{width:92,background:"rgba(255,255,255,0.08)",border:"2px solid rgba(120,200,60,0.4)",borderRadius:8,color:"#e8f8d0",padding:"6px 8px",fontSize:14,outline:"none"}}),
+                h("button", {onClick:()=>guardarCorr(a),disabled:busy===a.id_aplicacion,style:{padding:"6px 12px",background:"rgba(120,180,60,0.25)",border:"1px solid rgba(120,180,60,0.55)",borderRadius:7,color:"#c8f090",fontSize:12,fontWeight:700,cursor:"pointer"}}, busy===a.id_aplicacion?"…":"✓ Guardar"),
+                h("button", {onClick:()=>setEditId(null),style:{padding:"6px 12px",background:"transparent",border:"1px solid rgba(255,255,255,0.15)",borderRadius:7,color:"#8a9a78",fontSize:12,cursor:"pointer"}}, "Cancelar")
+              )
+            : confAnular===a.id_aplicacion
+            ? h("div", {style:{display:"flex",gap:8,marginTop:6,alignItems:"center",flexWrap:"wrap"}},
+                h("span", {style:{fontSize:12,color:"#e89070"}}, "¿Anular " + (a.nombre_producto||"") + "? Recalcula inventario."),
+                h("button", {onClick:()=>confirmarAnular(a),disabled:busy===a.id_aplicacion,style:{padding:"6px 12px",background:"rgba(200,80,60,0.25)",border:"1px solid rgba(200,80,60,0.55)",borderRadius:7,color:"#f0a090",fontSize:12,fontWeight:700,cursor:"pointer"}}, busy===a.id_aplicacion?"…":"Sí, anular"),
+                h("button", {onClick:()=>setConfAnular(null),style:{padding:"6px 12px",background:"transparent",border:"1px solid rgba(255,255,255,0.15)",borderRadius:7,color:"#8a9a78",fontSize:12,cursor:"pointer"}}, "No")
+              )
+            : h("div", {style:{display:"flex",gap:8,marginTop:6}},
+                h("button", {onClick:()=>corregir(a),disabled:busy===a.id_aplicacion,style:{padding:"4px 10px",background:"rgba(120,160,80,0.15)",border:"1px solid rgba(120,160,80,0.4)",borderRadius:7,color:"#b8e870",fontSize:11,fontWeight:600,cursor:"pointer"}}, "✏️ Corregir"),
+                h("button", {onClick:()=>anular(a),disabled:busy===a.id_aplicacion,style:{padding:"4px 10px",background:"rgba(200,80,60,0.15)",border:"1px solid rgba(200,80,60,0.4)",borderRadius:7,color:"#e89070",fontSize:11,fontWeight:600,cursor:"pointer"}}, busy===a.id_aplicacion ? "…" : "🚫 Anular")
+              )
         ))
       );
     })
