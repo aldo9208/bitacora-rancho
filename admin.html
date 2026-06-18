@@ -1867,6 +1867,93 @@ function SubCombustiblePolizas() {
 }
 
 // ── App ──────────────────────────────────────────────────────────────────────
+function TabCiclos() {
+  const [reload, setReload] = useState(0);
+  const [busy, setBusy] = useState("");
+  const [err, setErr] = useState("");
+  const {data, loading} = useFetch(SHEETS_URL + "?accion=obtener_ciclos", [reload]);
+  const ciclos = (data && data.ciclos) || [];
+  const act = useFetch(SHEETS_URL + "?accion=obtener_actividades", []);
+  const acts = (act.data && (act.data.actividades || act.data)) || [];
+  const lugares = [...new Set((Array.isArray(acts)?acts:[]).map(a => a.Lugar).filter(Boolean))];
+  const tiposAct = [...new Set((Array.isArray(acts)?acts:[]).map(a => a.Actividad).filter(Boolean))];
+  const [nrancho, setNrancho] = useState("");
+  const [nact, setNact] = useState("");
+  const selStyle = {background:"rgba(255,255,255,0.06)",border:"1px solid rgba(120,180,60,0.3)",borderRadius:8,color:"#d8f0b0",padding:"9px 12px",fontSize:13,minWidth:200,outline:"none"};
+
+  function hoyLocal(){ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+  function fdate(s){ if(!s) return "—"; const m=String(s).match(/^(\d{4})-(\d{2})-(\d{2})/); if(m){ const meses=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"]; return parseInt(m[3],10)+" "+meses[parseInt(m[2],10)-1]+" "+m[1]; } return String(s).substring(0,10); }
+  function pdate(s){ const m=String(s).match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return new Date(parseInt(m[1]),parseInt(m[2])-1,parseInt(m[3])); return new Date(s); }
+  function dias(ini, fin){ try{ const a=pdate(ini); const b=fin?pdate(fin):new Date(); const d=Math.floor((b-a)/86400000)+1; return d>0?d:1; }catch(e){ return "—"; } }
+
+  async function iniciar() {
+    if (!nrancho || !nact) { setErr("Elige rancho y actividad"); return; }
+    setBusy("ini"); setErr("");
+    try {
+      const r = await fetch(SHEETS_URL, {method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({ accion:"iniciar_ciclo", rancho:nrancho, seccion:"", actividad:nact, fecha_inicio:hoyLocal(), capturado_por:"admin" })});
+      const d = await r.json();
+      if (d.ok) { setNrancho(""); setNact(""); setReload(x=>x+1); }
+      else setErr("No se pudo: " + (d.error||"error"));
+    } catch(e) { setErr("Error: " + e); }
+    setBusy("");
+  }
+  async function finalizar(c) {
+    setBusy(c.id_ciclo); setErr("");
+    try {
+      const r = await fetch(SHEETS_URL + "?accion=finalizar_ciclo&id_ciclo=" + encodeURIComponent(c.id_ciclo) + "&fecha_fin=" + hoyLocal());
+      const d = await r.json();
+      if (d.ok) setReload(x=>x+1); else setErr("No se pudo: " + (d.error||"error"));
+    } catch(e) { setErr("Error: " + e); }
+    setBusy("");
+  }
+
+  const abiertos = ciclos.filter(c => String(c.estado) !== "finalizado");
+  const cerrados = ciclos.filter(c => String(c.estado) === "finalizado");
+
+  return h("div", null,
+    h("div", {style:{marginBottom:18}},
+      h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:2,marginBottom:4}}, "OPERACIÓN"),
+      h("div", {style:{fontSize:22,fontWeight:700,color:"#b8e870"}}, "Ciclos de actividad"),
+      h("div", {style:{fontSize:12,color:"#7a9058",marginTop:4}}, "Marca cuándo inicia y cuándo termina una aplicación de varios días. La raya diaria se sigue capturando igual.")
+    ),
+    err && h("div", {style:{color:"#f0a090",padding:"10px 12px",background:"rgba(200,80,60,0.12)",border:"1px solid rgba(200,80,60,0.3)",borderRadius:10,marginBottom:12,fontSize:13}}, err),
+    h("div", {style:{...C.card, marginBottom:18}},
+      h("div", {style:{fontSize:13,fontWeight:700,color:"#b8e870",marginBottom:10}}, "▶️ Iniciar un ciclo"),
+      h("div", {style:{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}},
+        h("select", {value:nrancho,onChange:e=>setNrancho(e.target.value),style:selStyle}, h("option",{value:""},"Rancho / sección…"), lugares.map(l=>h("option",{key:l,value:l}, l))),
+        h("select", {value:nact,onChange:e=>setNact(e.target.value),style:selStyle}, h("option",{value:""},"Actividad…"), tiposAct.map(a=>h("option",{key:a,value:a}, a))),
+        h("button", {onClick:iniciar,disabled:busy==="ini",style:{...C.bigBtn,padding:"10px 18px",fontSize:14,opacity:busy==="ini"?0.6:1}}, busy==="ini"?"Iniciando…":"▶️ Iniciar ciclo")
+      )
+    ),
+    h("div", {style:{fontSize:12,color:"#7a9058",letterSpacing:1,marginBottom:8}}, "EN CURSO (" + abiertos.length + ")"),
+    loading && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:20}}, "Cargando…"),
+    !loading && abiertos.length===0 && h("div", {style:{color:"#6a8a50",fontStyle:"italic",padding:"6px 0 16px"}}, "No hay ciclos abiertos"),
+    abiertos.map((c,i)=>h("div", {key:c.id_ciclo||i,style:{...C.card,marginBottom:10,borderLeft:"3px solid #7ac043"}},
+      h("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,flexWrap:"wrap"}},
+        h("div", {style:{flex:1,minWidth:0}},
+          h("div", {style:{fontSize:14,fontWeight:700,color:"#c8e898"}}, c.actividad||"—"),
+          h("div", {style:{fontSize:12,color:"#a0c870",marginTop:2}}, c.rancho||""),
+          h("div", {style:{fontSize:11,color:"#8aa870",marginTop:4}}, "Inició: " + fdate(c.fecha_inicio) + " · " + dias(c.fecha_inicio,null) + " día(s) en curso")
+        ),
+        h("button", {onClick:()=>finalizar(c),disabled:busy===c.id_ciclo,style:{padding:"8px 14px",background:"rgba(120,180,60,0.25)",border:"1px solid rgba(120,180,60,0.55)",borderRadius:8,color:"#c8f090",fontSize:13,fontWeight:700,cursor:"pointer"}}, busy===c.id_ciclo?"…":"✓ Finalizar")
+      )
+    )),
+    cerrados.length>0 && h("div", {style:{fontSize:12,color:"#7a9058",letterSpacing:1,margin:"18px 0 8px"}}, "FINALIZADOS (" + cerrados.length + ")"),
+    cerrados.map((c,i)=>h("div", {key:c.id_ciclo||i,style:{...C.card,marginBottom:8,opacity:0.85}},
+      h("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}},
+        h("div", {style:{flex:1,minWidth:0}},
+          h("div", {style:{fontSize:13,fontWeight:600,color:"#b8d890"}}, c.actividad||"—"),
+          h("div", {style:{fontSize:11,color:"#90b070",marginTop:2}}, c.rancho||"")
+        ),
+        h("div", {style:{textAlign:"right"}},
+          h("div", {style:{fontSize:12,color:"#a0c060"}}, fdate(c.fecha_inicio) + " → " + fdate(c.fecha_fin)),
+          h("div", {style:{fontSize:11,color:"#7a9058",marginTop:2}}, dias(c.fecha_inicio,c.fecha_fin) + " día(s)")
+        )
+      )
+    ))
+  );
+}
+
 function App() {
   const [logged, setLogged] = useState(() => load("admin_ok", false));
   const [tab, setTab] = useState("actividades");
@@ -1880,6 +1967,7 @@ function App() {
     {id:"compras",     label:"🧾 Capturar compra"},
     {id:"polizas_agro",label:"📒 Pólizas agro"},
     {id:"cosecha",     label:"🍋 Cosecha"},
+    {id:"ciclos",      label:"🔄 Ciclos"},
   ];
   return h("div", {style:{background:"#0e1a0a",minHeight:"100vh"}},
     h("div", {style:C.hdr},
@@ -1905,7 +1993,8 @@ function App() {
       tab === "combustible" && h(TabCombustible),
       tab === "compras"     && h(TabCompras),
       tab === "polizas_agro"&& h(TabPolizasAgro),
-      tab === "cosecha"     && h(TabCosecha)
+      tab === "cosecha"     && h(TabCosecha),
+      tab === "ciclos"      && h(TabCiclos)
     )
   );
 }
