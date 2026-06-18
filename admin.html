@@ -378,6 +378,8 @@ function TabAplicaciones() {
   const [editVal, setEditVal] = useState("");
   const [confAnular, setConfAnular] = useState(null);
   const [errMsg, setErrMsg] = useState("");
+  const [volEditKey, setVolEditKey] = useState(null);
+  const [volVal, setVolVal] = useState("");
   const productos = [...new Set(aplicaciones.map(a => a.nombre_producto).filter(Boolean))];
   const ranchos = [...new Set(aplicaciones.map(a => a.rancho).filter(Boolean))];
   const filtradas = aplicaciones.filter(a => {
@@ -410,6 +412,25 @@ function TabAplicaciones() {
     if (isNaN(n) || n < 0) { setErrMsg("Cantidad inválida"); return; }
     setEditId(null);
     accionAplic(a.id_aplicacion, "corregir_aplicacion", "&cantidad=" + n);
+  }
+  function editarVolumen(g) {
+    const ref = g.items[0];
+    setEditId(null); setConfAnular(null); setErrMsg("");
+    setVolEditKey(g.key); setVolVal(String(ref.volumen_mezcla_total || ""));
+  }
+  async function guardarVolumen(g) {
+    const v = parseFloat(String(volVal).replace(",","."));
+    if (isNaN(v) || v < 0) { setErrMsg("Volumen inválido"); return; }
+    const idAct = g.items[0].id_actividad;
+    if (!idAct) { setErrMsg("Esta aplicación no tiene id de pase, no se puede editar el volumen"); return; }
+    setVolEditKey(null); setBusy(g.key); setErrMsg("");
+    try {
+      const url = SHEETS_URL + "?accion=corregir_volumen_mezcla&id_actividad=" + encodeURIComponent(idAct) + "&volumen=" + v;
+      const d = await (await fetch(url)).json();
+      if (d.ok) setReload(x=>x+1);
+      else setErrMsg("No se pudo: " + (d.error||"error"));
+    } catch(e) { setErrMsg("Error: " + e); }
+    setBusy("");
   }
 
   const grupos = [];
@@ -461,7 +482,16 @@ function TabAplicaciones() {
           ),
           h("div", {style:{textAlign:"right"}},
             h("div", {style:{fontSize:15,fontWeight:700,color:"#e8a030"}}, fmtMXN(costoGrupo)),
-            ref.volumen_mezcla_total && h("div", {style:{fontSize:11,color:"#8aa870",marginTop:2}}, "Mezcla " + ref.volumen_mezcla_total + "L")
+            (volEditKey===g.key
+              ? h("div", {style:{display:"flex",gap:6,alignItems:"center",justifyContent:"flex-end",marginTop:4}},
+                  h("span", {style:{fontSize:11,color:"#8aa870"}}, "Volumen L:"),
+                  h("input", {type:"number",value:volVal,autoFocus:true,onChange:e=>setVolVal(e.target.value),style:{width:70,background:"rgba(255,255,255,0.08)",border:"2px solid rgba(120,200,60,0.4)",borderRadius:7,color:"#e8f8d0",padding:"4px 6px",fontSize:13,outline:"none",textAlign:"right"}}),
+                  h("button", {onClick:()=>guardarVolumen(g),disabled:busy===g.key,style:{padding:"4px 9px",background:"rgba(120,180,60,0.25)",border:"1px solid rgba(120,180,60,0.55)",borderRadius:6,color:"#c8f090",fontSize:11,fontWeight:700,cursor:"pointer"}}, busy===g.key?"…":"✓"),
+                  h("button", {onClick:()=>setVolEditKey(null),style:{padding:"4px 9px",background:"transparent",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,color:"#8a9a78",fontSize:11,cursor:"pointer"}}, "✕")
+                )
+              : ref.id_actividad
+                ? h("div", {onClick:()=>editarVolumen(g),title:"Editar volumen de la mezcla",style:{fontSize:11,color:"#8aa870",marginTop:2,cursor:"pointer",borderBottom:"1px dashed rgba(138,168,112,0.45)",display:"inline-block"}}, (ref.volumen_mezcla_total ? "Mezcla " + ref.volumen_mezcla_total + "L" : "+ volumen") + "  ✏️")
+                : (ref.volumen_mezcla_total && h("div", {style:{fontSize:11,color:"#8aa870",marginTop:2}}, "Mezcla " + ref.volumen_mezcla_total + "L")))
           )
         ),
         h("div", {style:{fontSize:11,color:"#7a9058",marginBottom:6,paddingBottom:8,borderBottom:"1px solid rgba(255,255,255,0.06)"}},
