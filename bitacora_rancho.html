@@ -186,7 +186,7 @@ const DEFAULT_JORNALEROS = [
 const fmtMXN = n => "$" + Number(n||0).toLocaleString("es-MX");
 const fmtNum = n => Number(n||0).toLocaleString("es-MX",{maximumFractionDigits:2});
 const hoy = () => { const d=new Date(); return DIAS[d.getDay()===0?6:d.getDay()-1]; };
-const semNum = () => { const n=new Date(),s=new Date(n.getFullYear(),0,1); return Math.ceil(((n-s)/86400000+s.getDay()+1)/7); };
+const semNum = () => { const x=new Date(); x.setHours(12,0,0,0); const day=(x.getDay()+6)%7; x.setDate(x.getDate()-day+3); const j=new Date(x.getFullYear(),0,1); return 1+Math.round(((x-j)/86400000-3+((j.getDay()+6)%7))/7); };
 function load(k,def){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):def; }catch{ return def; }}
 function save(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{}}
 
