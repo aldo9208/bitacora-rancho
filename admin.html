@@ -548,7 +548,7 @@ function TabJornaleros() {
   const mesesOpciones = [];
   for (let i = 0; i < 6; i++) { const d = new Date(ahora.getFullYear(), ahora.getMonth() - i, 1); mesesOpciones.push(MESES[d.getMonth()] + " " + d.getFullYear()); }
   const totalMes = jornaleros.reduce((s,j) => s + Number(j.total||0), 0);
-  const totalJornales = Math.round((totalMes - totalCosecha)*100)/100;
+  const totalJornales = Math.round(totalMes*100)/100; const granTotal = Math.round((totalMes + totalCosecha)*100)/100;
 
   return h("div", null,
     h("div", {style:{marginBottom:18}},
@@ -562,10 +562,11 @@ function TabJornaleros() {
       )
     ),
     h("div", {className:"grid2",style:{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}},
-      h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "TOTAL DEL MES"), h("div", {style:{fontSize:22,fontWeight:800,color:"#e8a030"}}, fmtMXN(totalMes))),
+      h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "TOTAL DEL MES"), h("div", {style:{fontSize:22,fontWeight:800,color:"#e8a030"}}, fmtMXN(granTotal))),
       h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "JORNALES"), h("div", {style:{fontSize:22,fontWeight:800,color:"#b8e870"}}, fmtMXN(totalJornales))),
       h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "🍋 COSECHA (DESTAJO)"), h("div", {style:{fontSize:22,fontWeight:800,color:"#e8c050"}}, fmtMXN(totalCosecha)), h("div", {style:{fontSize:11,color:"#7a9a68",marginTop:2}}, fmtNum(totalRejas) + " rejas"))
     ),
+    (cosecha.data && cosecha.data.por_semana && cosecha.data.por_semana.length>0 && h("div",{style:{marginTop:24}},h("div",{style:{fontSize:11,color:"#5a8040",letterSpacing:2,marginBottom:4}},"🍋 COSECHA POR SEMANA"),h("div",{style:{fontSize:13,color:"#7a9a68",marginBottom:12}},"Destajo por rejas — separado del jornal"),cosecha.data.por_semana.map(function(sem){ return h("div",{key:sem.semana,style:{...C.card,marginBottom:12,padding:0,overflowX:"auto"}},h("div",{style:{padding:"10px 12px",borderBottom:"1px solid rgba(255,255,255,0.08)",fontWeight:700,color:"#e8c050"}}, sem.semana),h("table",null,h("thead",null,h("tr",null,h("th",null,"Jornalero"),h("th",{style:{textAlign:"right"}},"Rejas"),h("th",{style:{textAlign:"right"}},"Pago"))),h("tbody",null,sem.jornaleros.map(function(jc,k){ return h("tr",{key:k},h("td",{style:{color:"#b8e870"}}, jc.jornalero),h("td",{style:{textAlign:"right",color:"#c8e898"}}, fmtNum(jc.rejas)),h("td",{style:{textAlign:"right",color:"#e8c050"}}, fmtMXN(jc.pago))); }),h("tr",{style:{background:"rgba(80,160,30,0.08)"}},h("td",{style:{fontWeight:700,color:"#7a9a68",fontSize:11,letterSpacing:1.5}},"CUADRILLA"),h("td",{style:{textAlign:"right",fontWeight:700,color:"#90c848"}}, fmtNum(sem.total_rejas)),h("td",{style:{textAlign:"right",fontWeight:800,color:"#e8c870"}}, fmtMXN(sem.total_pago)))))); }))),
     loading && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30}}, "Cargando…"),
     error && h("div", {style:{color:"#e08060",padding:14,background:"rgba(200,80,60,0.1)",borderRadius:10}}, "Error: " + error),
     !loading && jornaleros.length === 0 && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30,fontStyle:"italic"}}, "Sin pagos registrados este mes"),
@@ -584,13 +585,13 @@ function TabJornaleros() {
             h("td", {style:{fontWeight:700,color:"#b8e870"}}, j.nombre),
             semanas.map(s => h("td", {key:s,style:{textAlign:"right",color:Number(j.pagos[s])>0?"#c8e898":"#5a7048"}}, Number(j.pagos[s])>0?fmtMXN(j.pagos[s]):"—")),
             h("td", {style:{textAlign:"right",color:cosechaJorn[j.nombre]?"#e8c050":"#5a7048"}}, cosechaJorn[j.nombre]?fmtMXN(cosechaJorn[j.nombre].pago):"—"),
-            h("td", {style:{textAlign:"right",color:"#e8a030",fontWeight:700}}, fmtMXN(j.total))
+            h("td", {style:{textAlign:"right",color:"#e8a030",fontWeight:700}}, fmtMXN(Math.round((j.total+(cosechaJorn[j.nombre]?cosechaJorn[j.nombre].pago:0))*100)/100))
           )),
           h("tr", {style:{background:"rgba(80,160,30,0.08)"}},
             h("td", {style:{fontWeight:700,fontSize:11,letterSpacing:1.5,color:"#7a9a68"}}, "TOTAL SEMANA"),
             semanas.map(s => h("td", {key:s,style:{textAlign:"right",fontWeight:700,color:"#90c848"}}, fmtMXN(totalSemana[s]||0))),
             h("td", {style:{textAlign:"right",fontWeight:700,color:"#e8c050"}}, fmtMXN(totalCosecha)),
-            h("td", {style:{textAlign:"right",fontWeight:800,color:"#e8c870"}}, fmtMXN(totalMes))
+            h("td", {style:{textAlign:"right",fontWeight:800,color:"#e8c870"}}, fmtMXN(granTotal))
           )
         )
       )
