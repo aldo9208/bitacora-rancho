@@ -282,6 +282,67 @@ function BtnSheets({semanaNum, refreshKey}){
 }
 
 // ── FormActividad ─────────────────────────────────────────────────────────────
+function comprimirFoto(file, maxLado, calidad){
+  return new Promise(function(resolve, reject){
+    maxLado = maxLado || 1280; calidad = calidad || 0.65;
+    var reader = new FileReader();
+    reader.onload = function(ev){
+      var img = new Image();
+      img.onload = function(){
+        var w = img.width, hh = img.height;
+        if (w >= hh){ if (w > maxLado){ hh = Math.round(hh*maxLado/w); w = maxLado; } }
+        else { if (hh > maxLado){ w = Math.round(w*maxLado/hh); hh = maxLado; } }
+        var cv = document.createElement('canvas'); cv.width = w; cv.height = hh;
+        cv.getContext('2d').drawImage(img, 0, 0, w, hh);
+        var du = cv.toDataURL('image/jpeg', calidad);
+        resolve({ base64: du.split(',')[1], filename: (file.name||'foto').replace(/\.[^.]+$/,'') + '.jpg' });
+      };
+      img.onerror = function(){ reject(new Error('img')); };
+      img.src = ev.target.result;
+    };
+    reader.onerror = function(){ reject(new Error('read')); };
+    reader.readAsDataURL(file);
+  });
+}
+function FotosCaptura(props){
+  var fotos = props.fotos, setFotos = props.setFotos;
+  var st = useState({proc:false});
+  var s = st[0], set = st[1];
+  function onPick(e){
+    var files = Array.prototype.slice.call(e.target.files||[]);
+    e.target.value='';
+    if(!files.length) return;
+    var libres = 4 - fotos.length;
+    if(libres<=0){ alert('Máximo 4 fotos'); return; }
+    files = files.slice(0, libres);
+    set({proc:true});
+    (async function(){
+      var nuevas = [];
+      for(var i=0;i<files.length;i++){
+        try{ var c = await comprimirFoto(files[i]); nuevas.push({base64:c.base64, filename:c.filename, preview:'data:image/jpeg;base64,'+c.base64}); }catch(err){}
+      }
+      setFotos(fotos.concat(nuevas));
+      set({proc:false});
+    })();
+  }
+  function quitar(i){ setFotos(fotos.filter(function(_,idx){return idx!==i;})); }
+  return h('div', {style:{marginTop:14}},
+    h('div', {style:{fontSize:13,color:'#8aa868',marginBottom:6,fontWeight:600}}, '📷 Fotos (opcional, hasta 4)'),
+    h('div', {style:{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}},
+      fotos.map(function(f,i){
+        return h('div',{key:i,style:{position:'relative'}},
+          h('img',{src:f.preview,style:{width:64,height:64,objectFit:'cover',borderRadius:8,border:'1px solid rgba(255,255,255,0.15)'}}),
+          h('button',{onClick:function(){quitar(i);},type:'button',style:{position:'absolute',top:-6,right:-6,width:20,height:20,borderRadius:'50%',background:'#c0392b',color:'#fff',border:'none',fontSize:13,lineHeight:'20px',cursor:'pointer',padding:0}},'×')
+        );
+      }),
+      fotos.length<4 && h('label',{style:{width:64,height:64,borderRadius:8,border:'1px dashed rgba(120,160,80,0.5)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#8aa868',fontSize:26,background:'rgba(120,160,80,0.05)'}},
+        s.proc ? h('span',{style:{fontSize:12}},'…') : '+',
+        h('input',{type:'file',accept:'image/*',multiple:true,capture:'environment',style:{display:'none'},onChange:onPick})
+      )
+    )
+  );
+}
+
 function FormActividad({initial,onSave,onClose,jornalerosConfig,dia,semanaNum}){
   const initRancho = initial ? RANCHOS_CONFIG.find(r=>r.nombre===initial.rancho||r.id===initial.ranchoId) : null;
   const [paso,setPaso] = useState(initial ? 2 : 0);
@@ -294,6 +355,7 @@ function FormActividad({initial,onSave,onClose,jornalerosConfig,dia,semanaNum}){
   });
   const [nota,setNota] = useState(initial?.nota||"");
   const [precioReja,setPrecioReja] = useState(String(initial?.precio_reja||""));
+  const [fotos,setFotos] = useState([]);
 
   // Estado nuevo: aplicaciones de agroquímicos (lista de productos aplicados)
   const [aplicaciones, setAplicaciones] = useState(initial?.aplicaciones || []);
@@ -329,7 +391,7 @@ function FormActividad({initial,onSave,onClose,jornalerosConfig,dia,semanaNum}){
     const registro = {
       ranchoId, seccionId, rancho:lugarLabel, actividad,
       jornaleros:Object.entries(selJ).map(([nombre,val])=>(/cosech/i.test(actividad)?{nombre,pago:0,rejas:Number(val||0)}:{nombre,pago:Number(val||0)})),
-      nota, id:initial?.id||Date.now(), enviado:false, precio_reja:(/cosech/i.test(actividad)?precioRejaNum:undefined)
+      nota, id:initial?.id||Date.now(), enviado:false, precio_reja:(/cosech/i.test(actividad)?precioRejaNum:undefined), fotos: fotos.map(function(f){return {base64:f.base64, filename:f.filename};})
     };
     // Si la actividad requiere aplicación, anexamos los datos
     if(requiereAplicacion && aplicaciones.length>0){
@@ -530,7 +592,8 @@ function FormActividad({initial,onSave,onClose,jornalerosConfig,dia,semanaNum}){
       ),
       h("textarea",{value:nota,onChange:e=>setNota(e.target.value),rows:4,
         placeholder:"Ej: Corrida 9319423, faltó Ángel, lluvia en la mañana...",
-        style:{...C.inp,resize:"none",lineHeight:1.5}})
+        style:{...C.inp,resize:"none",lineHeight:1.5}}),
+      h(FotosCaptura,{fotos:fotos,setFotos:setFotos})
     ),
     h(FixBot,null,
       h("button",{onClick:doSave,style:C.bigBtn},"✓ Guardar actividad")
