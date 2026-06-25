@@ -231,6 +231,7 @@ function TabActividades() {
   const [mes, setMes] = useState(MESES[ahora.getMonth()] + " " + ahora.getFullYear());
   const [filtroRancho, setFiltroRancho] = useState("");
   const [filtroDia, setFiltroDia] = useState("");
+  const [filtroSemana, setFiltroSemana] = useState("");
   const [reload, setReload] = useState(0);
   const [editId, setEditId] = useState(null);
   const [editSemana, setEditSemana] = useState("");
@@ -282,9 +283,11 @@ function TabActividades() {
   for (let i = 0; i < 6; i++) { const d = new Date(ahora.getFullYear(), ahora.getMonth() - i, 1); mesesOpciones.push(MESES[d.getMonth()] + " " + d.getFullYear()); }
   const ranchos = [...new Set(actividades.map(a => a.Lugar).filter(Boolean))];
   const dias = [...new Set(actividades.map(a => a.Dia).filter(Boolean))];
+  const semanas = [...new Set(actividades.map(a => a.Semana).filter(Boolean))].sort(function(x,y){return (+(String(x).match(/[0-9]+/)||[0])[0])-(+(String(y).match(/[0-9]+/)||[0])[0]);});
   const filtradas = actividades.filter(a => {
     if (filtroRancho && a.Lugar !== filtroRancho) return false;
     if (filtroDia && a.Dia !== filtroDia) return false;
+    if (filtroSemana && a.Semana !== filtroSemana) return false;
     return true;
   });
   const totalRaya = filtradas.reduce((s,a) => s + Number(a["Raya total"]||0), 0);
@@ -315,6 +318,11 @@ function TabActividades() {
       h("div", {style:{display:"flex",flexWrap:"wrap",gap:6}},
         h("button", {onClick:()=>setFiltroDia(""),style:C.chip(filtroDia==="")}, "Todos"),
         dias.map(d => h("button", {key:d,onClick:()=>setFiltroDia(d),style:C.chip(filtroDia===d)}, d))
+      ),
+      h("div", {style:{fontSize:10,color:"#5a7a40",letterSpacing:1.5,marginTop:10,marginBottom:6}}, "SEMANA"),
+      h("div", {style:{display:"flex",flexWrap:"wrap",gap:6}},
+        h("button", {onClick:()=>setFiltroSemana(""),style:C.chip(filtroSemana==="")}, "Todas"),
+        semanas.map(sm => h("button", {key:sm,onClick:()=>setFiltroSemana(sm),style:C.chip(filtroSemana===sm)}, String(sm).replace("Semana ","")))
       )
     ),
     loading && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30}}, "Cargando…"),
@@ -566,7 +574,7 @@ function TabJornaleros() {
       h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "JORNALES"), h("div", {style:{fontSize:22,fontWeight:800,color:"#b8e870"}}, fmtMXN(totalJornales))),
       h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "🍋 COSECHA (DESTAJO)"), h("div", {style:{fontSize:22,fontWeight:800,color:"#e8c050"}}, fmtMXN(totalCosecha)), h("div", {style:{fontSize:11,color:"#7a9a68",marginTop:2}}, fmtNum(totalRejas) + " rejas"))
     ),
-    (cosecha.data && cosecha.data.por_semana && cosecha.data.por_semana.length>0 && h("div",{style:{marginTop:24}},h("div",{style:{fontSize:11,color:"#5a8040",letterSpacing:2,marginBottom:4}},"🍋 COSECHA POR SEMANA"),h("div",{style:{fontSize:13,color:"#7a9a68",marginBottom:12}},"Destajo por rejas — separado del jornal"),cosecha.data.por_semana.map(function(sem){ return h("div",{key:sem.semana,style:{...C.card,marginBottom:12,padding:0,overflowX:"auto"}},h("div",{style:{padding:"10px 12px",borderBottom:"1px solid rgba(255,255,255,0.08)",fontWeight:700,color:"#e8c050"}}, sem.semana),h("table",null,h("thead",null,h("tr",null,h("th",null,"Jornalero"),h("th",{style:{textAlign:"right"}},"Rejas"),h("th",{style:{textAlign:"right"}},"Pago"))),h("tbody",null,sem.jornaleros.map(function(jc,k){ return h("tr",{key:k},h("td",{style:{color:"#b8e870"}}, jc.jornalero),h("td",{style:{textAlign:"right",color:"#c8e898"}}, fmtNum(jc.rejas)),h("td",{style:{textAlign:"right",color:"#e8c050"}}, fmtMXN(jc.pago))); }),h("tr",{style:{background:"rgba(80,160,30,0.08)"}},h("td",{style:{fontWeight:700,color:"#7a9a68",fontSize:11,letterSpacing:1.5}},"CUADRILLA"),h("td",{style:{textAlign:"right",fontWeight:700,color:"#90c848"}}, fmtNum(sem.total_rejas)),h("td",{style:{textAlign:"right",fontWeight:800,color:"#e8c870"}}, fmtMXN(sem.total_pago)))))); }))),
+      (cosecha.data && cosecha.data.por_semana && cosecha.data.por_semana.length>0 && h("div",{style:{marginTop:24}},h("div",{style:{fontSize:11,color:"#5a8040",letterSpacing:2,marginBottom:4}},"🍋 COSECHA POR SEMANA"),h("div",{style:{fontSize:13,color:"#7a9a68",marginBottom:12}},"Destajo por rejas — rejas por día y jornalero"),cosecha.data.por_semana.map(function(sem){ var dias=sem.dias||[]; return h("div",{key:sem.semana,style:{...C.card,marginBottom:12,padding:0,overflowX:"auto"}},h("div",{style:{padding:"10px 12px",borderBottom:"1px solid rgba(255,255,255,0.08)",fontWeight:700,color:"#e8c050"}}, sem.semana),h("table",{style:{minWidth:"100%"}},h("thead",null, h("tr",null, [h("th",{key:"j"},"Jornalero")].concat(dias.map(function(d){return h("th",{key:d,style:{textAlign:"right"}}, d);})).concat([h("th",{key:"tr",style:{textAlign:"right"}},"Rejas"),h("th",{key:"tp",style:{textAlign:"right"}},"Pago")]))),h("tbody",null, (sem.jornaleros||[]).map(function(jc,ki){ return h("tr",{key:ki}, [h("td",{key:"n",style:{color:"#b8e870"}}, jc.jornalero)].concat(dias.map(function(d){ var v=(jc.por_dia||{})[d]; return h("td",{key:d,style:{textAlign:"right",color:v?"#c8e898":"#4a5a40"}}, v?fmtNum(v):"–"); })).concat([h("td",{key:"tr",style:{textAlign:"right",fontWeight:700,color:"#90c848"}}, fmtNum(jc.rejas)),h("td",{key:"tp",style:{textAlign:"right",color:"#e8c050"}}, fmtMXN(jc.pago))])); }).concat([ h("tr",{key:"cuad",style:{background:"rgba(80,160,30,0.08)"}}, [h("td",{key:"n",style:{fontWeight:700,color:"#7a9a68",fontSize:11,letterSpacing:1.5}},"CUADRILLA")].concat(dias.map(function(d){ var tt=(sem.por_dia_total||{})[d]; return h("td",{key:d,style:{textAlign:"right",fontWeight:700,color:"#90c848"}}, tt?fmtNum(tt.rejas):"–"); })).concat([h("td",{key:"tr",style:{textAlign:"right",fontWeight:800,color:"#90c848"}}, fmtNum(sem.total_rejas)),h("td",{key:"tp",style:{textAlign:"right",fontWeight:800,color:"#e8c870"}}, fmtMXN(sem.total_pago))])) ])))); }))),
     loading && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30}}, "Cargando…"),
     error && h("div", {style:{color:"#e08060",padding:14,background:"rgba(200,80,60,0.1)",borderRadius:10}}, "Error: " + error),
     !loading && jornaleros.length === 0 && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30,fontStyle:"italic"}}, "Sin pagos registrados este mes"),
