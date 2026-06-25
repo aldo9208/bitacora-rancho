@@ -282,14 +282,14 @@ function BtnSheets({semanaNum, refreshKey}){
 }
 
 // ── FormActividad ─────────────────────────────────────────────────────────────
-function FormActividad({initial,onSave,onClose,jornalerosConfig,dia}){
+function FormActividad({initial,onSave,onClose,jornalerosConfig,dia,semanaNum}){
   const initRancho = initial ? RANCHOS_CONFIG.find(r=>r.nombre===initial.rancho||r.id===initial.ranchoId) : null;
   const [paso,setPaso] = useState(initial ? 2 : 0);
   const [ranchoId,setRanchoId] = useState(initial?.ranchoId || initRancho?.id || "");
   const [seccionId,setSeccionId] = useState(initial?.seccionId || "");
   const [actividad,setActividad] = useState(initial?.actividad || ACTIVIDADES[0]);
   const [selJ,setSelJ] = useState(()=>{
-    if(initial?.jornaleros){const m={};initial.jornaleros.forEach(j=>{m[j.nombre]=String(j.pago);});return m;}
+    if(initial?.jornaleros){const m={};initial.jornaleros.forEach(j=>{m[j.nombre]=String(j.rejas!=null?j.rejas:j.pago);});return m;}
     return{};
   });
   const [nota,setNota] = useState(initial?.nota||"");
@@ -328,8 +328,8 @@ function FormActividad({initial,onSave,onClose,jornalerosConfig,dia}){
     // para que se vuelva a subir con los cambios
     const registro = {
       ranchoId, seccionId, rancho:lugarLabel, actividad,
-      jornaleros:Object.entries(selJ).map(([nombre,val])=>({nombre,pago:(/cosech/i.test(actividad)?Number(val||0)*(Number(String(precioReja).replace(/[^0-9.]/g,""))||0):Number(val||0))})),
-      nota, id:initial?.id||Date.now(), enviado:false
+      jornaleros:Object.entries(selJ).map(([nombre,val])=>(/cosech/i.test(actividad)?{nombre,pago:0,rejas:Number(val||0)}:{nombre,pago:Number(val||0)})),
+      nota, id:initial?.id||Date.now(), enviado:false, precio_reja:(/cosech/i.test(actividad)?precioRejaNum:undefined)
     };
     // Si la actividad requiere aplicación, anexamos los datos
     if(requiereAplicacion && aplicaciones.length>0){
@@ -339,7 +339,7 @@ function FormActividad({initial,onSave,onClose,jornalerosConfig,dia}){
       registro.aplicador = aplicador;
       registro.clima = clima;
     }
-    if(/cosech/i.test(actividad)){try{var _pr=Number(String(precioReja).replace(/[^0-9.]/g,""))||0;fetch(SHEETS_URL,{method:"POST",body:JSON.stringify({accion:"guardar_cosecha_destajo",id_actividad:registro.id,fecha:new Date().toISOString(),rancho:registro.rancho,precio_reja:_pr,jornaleros:Object.entries(selJ).map(function(en){return{nombre:en[0],rejas:Number(en[1]||0),pago:Number(en[1]||0)*_pr};})})});}catch(_e){}}
+    if(/cosech/i.test(actividad)){try{var _pr=Number(String(precioReja).replace(/[^0-9.]/g,""))||0;fetch(SHEETS_URL,{method:"POST",body:JSON.stringify({accion:"guardar_cosecha_destajo",semana:semanaNum,id_actividad:registro.id,fecha:new Date().toISOString(),rancho:registro.rancho,precio_reja:_pr,jornaleros:Object.entries(selJ).map(function(en){return{nombre:en[0],rejas:Number(en[1]||0),pago:Number(en[1]||0)*_pr};})})});}catch(_e){}}
     onSave(registro);
   };
 
@@ -569,7 +569,7 @@ function PantallaRegistro({semanaNum,onVerResumen,onConfig,onCombustible,onCiclo
     initial:editIdx!==null?registros[editIdx]:null,
     onSave:saveAct,
     onClose:()=>{setShowForm(false);setEditIdx(null);setPaso(paso===6?6:1);},
-    jornalerosConfig,dia
+    jornalerosConfig,dia,semanaNum
   });
 
   if(paso===0) return h("div",null,
@@ -648,13 +648,13 @@ function PantallaRegistro({semanaNum,onVerResumen,onConfig,onCombustible,onCiclo
 // ── PantallaResumen ───────────────────────────────────────────────────────────
 function PantallaResumen({semanaNum,onVolver}){
   const [verDia,setVerDia]=useState(null);
-  let totalRaya=0,totalActs=0;
+  let totalRaya=0,totalActs=0,totalCosecha=0,totalRejas=0;
   const porDia=DIAS.map(dia=>{
     const regs=load(`s${semanaNum}_${dia}`,[]);
-    let raya=0;
-    regs.forEach(r=>{(r.jornaleros||[]).forEach(j=>{raya+=Number(j.pago||0);});});
-    totalRaya+=raya;totalActs+=regs.length;
-    return{dia,regs,raya};
+    let raya=0,cose=0,rej=0;
+    regs.forEach(r=>{(r.jornaleros||[]).forEach(j=>{raya+=Number(j.pago||0);if(j.rejas){rej+=Number(j.rejas||0);cose+=Number(j.rejas||0)*Number(r.precio_reja||0);}});});
+    totalRaya+=raya;totalActs+=regs.length;totalCosecha+=cose;totalRejas+=rej;
+    return{dia,regs,raya,cose,rej};
   }).filter(d=>d.regs.length>0);
 
   const porRancho={};
@@ -668,8 +668,8 @@ function PantallaResumen({semanaNum,onVolver}){
   return h("div",null,
     h(Hdr,{titulo:"Semana #"+semanaNum,sub:"Resumen semanal",onBack:onVolver}),
     h("div",{style:{padding:"14px"}},
-      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}},
-        [{label:"RAYA TOTAL",val:fmtMXN(totalRaya),color:"#e8a030"},
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:14}},
+        [{label:"JORNAL",val:fmtMXN(totalRaya),color:"#e8a030"},{label:"COSECHA",val:fmtMXN(totalCosecha),color:"#c8a030"},
          {label:"ACTIVIDADES",val:totalActs,color:"#90c840"}
         ].map(t=>h("div",{key:t.label,style:{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,padding:"13px",textAlign:"center"}},
           h("div",{style:{fontSize:20,fontWeight:800,color:t.color}},t.val),
@@ -704,7 +704,7 @@ function PantallaResumen({semanaNum,onVolver}){
               h("div",{style:{fontSize:12,fontWeight:700,color:"#90c848",marginBottom:2}},r.rancho),
               h("div",{style:{fontSize:12,color:"#c0d888",fontStyle:"italic",marginBottom:3}},r.actividad),
               r.jornaleros&&r.jornaleros.length>0&&h("div",{style:{fontSize:11,color:"#7a9868",marginBottom:r.nota?2:0}},
-                r.jornaleros.map(j=>j.nombre+(j.pago?` ${fmtMXN(j.pago)}`:"")).join(" · ")
+                r.jornaleros.map(j=>j.nombre+(j.rejas?` ${j.rejas} rejas`:(j.pago?` ${fmtMXN(j.pago)}`:""))).join(" · ")
               ),
               r.nota&&h("div",{style:{fontSize:11,color:"#5a7040",fontStyle:"italic"}},"* "+r.nota)
             ))
