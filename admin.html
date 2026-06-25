@@ -332,7 +332,7 @@ function TabActividades() {
       a.Jornaleros && h("div", {style:{fontSize:12,color:"#8aa870",marginTop:6,paddingTop:6,borderTop:"1px solid rgba(255,255,255,0.05)"}}, a.Jornaleros),
       a.Nota && h("div", {style:{fontSize:11,color:"#7a9058",marginTop:4,fontStyle:"italic"}}, "* " + a.Nota),
       editId !== a.ID && h("div", {style:{marginTop:8}},
-        h("button", {onClick:()=>abrirEdit(a),style:{padding:"6px 12px",background:"rgba(120,160,80,0.15)",border:"1px solid rgba(120,160,80,0.4)",borderRadius:8,color:"#b8e870",fontSize:12,fontWeight:600,cursor:"pointer"}}, "✏️ Editar")
+        h("button", {onClick:()=>abrirEdit(a),style:{padding:"6px 12px",background:"rgba(120,160,80,0.15)",border:"1px solid rgba(120,160,80,0.4)",borderRadius:8,color:"#b8e870",fontSize:12,fontWeight:600,cursor:"pointer"}}, "✏️ Editar"), h("button", {onClick:async()=>{ if(!confirm("¿Eliminar este registro?\n"+(a.Actividad||"")+" — "+(a.Jornaleros||"")+"\nNo se puede deshacer.")) return; try{ const r=await fetch(SHEETS_URL+"?accion=eliminar_actividad&mes="+encodeURIComponent(mes)+"&id="+encodeURIComponent(a.ID)+"&cb="+Date.now()); const j=await r.json(); if(j&&j.ok){ setReload(x=>x+1); } else { alert("No se pudo eliminar: "+((j&&j.error)||"error")); } }catch(err){ alert("Error: "+err.message); } }, style:{marginLeft:8,padding:"6px 12px",background:"rgba(200,60,60,0.12)",border:"1px solid rgba(200,70,70,0.45)",borderRadius:8,color:"#e88080",fontSize:12,fontWeight:600,cursor:"pointer"}}, "🗑️ Eliminar")
       ),
       editId === a.ID && h("div", {style:{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(120,160,80,0.25)"}},
         h("div", {style:{display:"flex",alignItems:"center",gap:8,marginBottom:12}},
