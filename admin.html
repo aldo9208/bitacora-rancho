@@ -317,6 +317,8 @@ function TabActividades() {
   const [editPrecio, setEditPrecio] = useState("");
   const [editRancho, setEditRancho] = useState("");
   const [editActividad, setEditActividad] = useState("");
+  const [editRanchoOtro, setEditRanchoOtro] = useState(false);
+  const [editActividadOtro, setEditActividadOtro] = useState(false);
   const [busy, setBusy] = useState(false);
   const {data, loading, error} = useFetch(SHEETS_URL + "?accion=obtener_actividades&mes=" + encodeURIComponent(mes), [mes, reload]);
   const actividades = (data && data.actividades) || [];
@@ -338,6 +340,8 @@ function TabActividades() {
     setEditPrecio("");
     setEditRancho(a.Lugar||"");
     setEditActividad(a.Actividad||"");
+    setEditRanchoOtro(false);
+    setEditActividadOtro(false);
   }
   const precioNum = () => Number(String(editPrecio).replace(/[^0-9.]/g,""))||0;
   const rejasNum = (r) => Number(String(r).replace(/[^0-9.]/g,""))||0;
@@ -429,13 +433,17 @@ function TabActividades() {
       editId === a.ID && h("div", {style:{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(120,160,80,0.25)"}},
         h("div", {style:{marginBottom:10}},
           h("label", {style:{display:"block",fontSize:11,color:"#6a9050",letterSpacing:1,marginBottom:4}}, "RANCHO / TABLA"),
-          h("input", {list:"dlL"+a.ID, value:editRancho, onChange:function(e){setEditRancho(e.target.value);}, style:{...C.inp,width:"100%",boxSizing:"border-box"}}),
-          h("datalist", {id:"dlL"+a.ID}, lugaresUnicos.map(function(v,i){return h("option",{key:i,value:v});}))
+          h("select", {value: editRanchoOtro ? "__OTRO__" : editRancho, onChange:function(e){var v=e.target.value; if(v==="__OTRO__"){setEditRanchoOtro(true);}else{setEditRancho(v);setEditRanchoOtro(false);}}, style:{...C.inp,width:"100%",boxSizing:"border-box"}},
+            lugaresUnicos.map(function(v,i){return h("option",{key:i,value:v}, v);}).concat([h("option",{key:"otro",value:"__OTRO__"}, "➕ Otro (escribir)…")])
+          ),
+          editRanchoOtro && h("input", {value:editRancho, onChange:function(e){setEditRancho(e.target.value);}, placeholder:"Escribe el rancho / tabla", autoFocus:true, style:{...C.inp,width:"100%",boxSizing:"border-box",marginTop:6}})
         ),
         h("div", {style:{marginBottom:12}},
           h("label", {style:{display:"block",fontSize:11,color:"#6a9050",letterSpacing:1,marginBottom:4}}, "ACTIVIDAD"),
-          h("input", {list:"dlA"+a.ID, value:editActividad, onChange:function(e){setEditActividad(e.target.value);}, style:{...C.inp,width:"100%",boxSizing:"border-box"}}),
-          h("datalist", {id:"dlA"+a.ID}, actividadesUnicas.map(function(v,i){return h("option",{key:i,value:v});}))
+          h("select", {value: editActividadOtro ? "__OTRO__" : editActividad, onChange:function(e){var v=e.target.value; if(v==="__OTRO__"){setEditActividadOtro(true);}else{setEditActividad(v);setEditActividadOtro(false);}}, style:{...C.inp,width:"100%",boxSizing:"border-box"}},
+            actividadesUnicas.map(function(v,i){return h("option",{key:i,value:v}, v);}).concat([h("option",{key:"otro",value:"__OTRO__"}, "➕ Otro (escribir)…")])
+          ),
+          editActividadOtro && h("input", {value:editActividad, onChange:function(e){setEditActividad(e.target.value);}, placeholder:"Escribe la actividad", autoFocus:true, style:{...C.inp,width:"100%",boxSizing:"border-box",marginTop:6}})
         ),
         h("div", {style:{display:"flex",alignItems:"center",gap:8,marginBottom:12}},
           h("label", {style:{fontSize:11,color:"#6a9050",letterSpacing:1}}, "SEMANA #"),
