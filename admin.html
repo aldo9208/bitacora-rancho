@@ -315,9 +315,13 @@ function TabActividades() {
   const [editJorn, setEditJorn] = useState([]);
   const [editDestajo, setEditDestajo] = useState(false);
   const [editPrecio, setEditPrecio] = useState("");
+  const [editRancho, setEditRancho] = useState("");
+  const [editActividad, setEditActividad] = useState("");
   const [busy, setBusy] = useState(false);
   const {data, loading, error} = useFetch(SHEETS_URL + "?accion=obtener_actividades&mes=" + encodeURIComponent(mes), [mes, reload]);
   const actividades = (data && data.actividades) || [];
+  const lugaresUnicos = Array.from(new Set(actividades.map(function(a){return a.Lugar;}).filter(Boolean))).sort();
+  const actividadesUnicas = Array.from(new Set(actividades.map(function(a){return a.Actividad;}).filter(Boolean))).sort();
   function parseJorn(str){
     return String(str||"").split(",").map(function(p){
       var m = p.trim().match(/^(.+?)\s*\$([\d,]+)$/);
@@ -332,6 +336,8 @@ function TabActividades() {
     setEditJorn(parseJorn(a.Jornaleros).map(j=>({...j, rejas:""})));
     setEditDestajo(/cosech/i.test(String(a.Actividad||"")));
     setEditPrecio("");
+    setEditRancho(a.Lugar||"");
+    setEditActividad(a.Actividad||"");
   }
   const precioNum = () => Number(String(editPrecio).replace(/[^0-9.]/g,""))||0;
   const rejasNum = (r) => Number(String(r).replace(/[^0-9.]/g,""))||0;
@@ -345,7 +351,7 @@ function TabActividades() {
         const pago = editDestajo ? Math.round(rejas*precio*100)/100 : (Number(String(j.pago).replace(/[^0-9.]/g,""))||0);
         return {nombre:j.nombre, pago:pago, rejas:rejas};
       });
-      const url = SHEETS_URL + "?accion=editar_actividad&mes=" + encodeURIComponent(mes) + "&id=" + encodeURIComponent(a.ID) + "&semana=" + encodeURIComponent(editSemana) + "&jornaleros=" + encodeURIComponent(JSON.stringify(jorn.map(j=>({nombre:j.nombre,pago:j.pago}))));
+      const url = SHEETS_URL + "?accion=editar_actividad&mes=" + encodeURIComponent(mes) + "&id=" + encodeURIComponent(a.ID) + "&rancho=" + encodeURIComponent(editRancho) + "&actividad=" + encodeURIComponent(editActividad) + "&semana=" + encodeURIComponent(editSemana) + "&jornaleros=" + encodeURIComponent(JSON.stringify(jorn.map(j=>({nombre:j.nombre,pago:j.pago}))));
       const d = await (await fetch(url)).json();
       if(!d.ok){ alert("No se pudo: " + (d.error||"error")); setBusy(false); return; }
       if(editDestajo){
@@ -421,6 +427,16 @@ function TabActividades() {
       ),
       h(FotosRegistro, {fotos:(function(){try{var p=a.Fotos?JSON.parse(a.Fotos):[];return Array.isArray(p)?p:[];}catch(e){return [];}})(), mes:mes, id:a.ID, onChange:function(){ setReload(function(x){return x+1;}); }}),
       editId === a.ID && h("div", {style:{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(120,160,80,0.25)"}},
+        h("div", {style:{marginBottom:10}},
+          h("label", {style:{display:"block",fontSize:11,color:"#6a9050",letterSpacing:1,marginBottom:4}}, "RANCHO / TABLA"),
+          h("input", {list:"dlL"+a.ID, value:editRancho, onChange:function(e){setEditRancho(e.target.value);}, style:{...C.inp,width:"100%",boxSizing:"border-box"}}),
+          h("datalist", {id:"dlL"+a.ID}, lugaresUnicos.map(function(v,i){return h("option",{key:i,value:v});}))
+        ),
+        h("div", {style:{marginBottom:12}},
+          h("label", {style:{display:"block",fontSize:11,color:"#6a9050",letterSpacing:1,marginBottom:4}}, "ACTIVIDAD"),
+          h("input", {list:"dlA"+a.ID, value:editActividad, onChange:function(e){setEditActividad(e.target.value);}, style:{...C.inp,width:"100%",boxSizing:"border-box"}}),
+          h("datalist", {id:"dlA"+a.ID}, actividadesUnicas.map(function(v,i){return h("option",{key:i,value:v});}))
+        ),
         h("div", {style:{display:"flex",alignItems:"center",gap:8,marginBottom:12}},
           h("label", {style:{fontSize:11,color:"#6a9050",letterSpacing:1}}, "SEMANA #"),
           h("input", {type:"number",value:editSemana,onChange:e=>setEditSemana(e.target.value),style:{...C.inp,maxWidth:90,padding:"6px 8px"}})
