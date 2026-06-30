@@ -319,6 +319,7 @@ function TabActividades() {
   const [editActividad, setEditActividad] = useState("");
   const [editRanchoOtro, setEditRanchoOtro] = useState(false);
   const [editActividadOtro, setEditActividadOtro] = useState(false);
+  const [editNota, setEditNota] = useState("");
   const [busy, setBusy] = useState(false);
   const {data, loading, error} = useFetch(SHEETS_URL + "?accion=obtener_actividades&mes=" + encodeURIComponent(mes), [mes, reload]);
   const actividades = (data && data.actividades) || [];
@@ -342,6 +343,7 @@ function TabActividades() {
     setEditActividad(a.Actividad||"");
     setEditRanchoOtro(false);
     setEditActividadOtro(false);
+    setEditNota(a.Nota||"");
   }
   const precioNum = () => Number(String(editPrecio).replace(/[^0-9.]/g,""))||0;
   const rejasNum = (r) => Number(String(r).replace(/[^0-9.]/g,""))||0;
@@ -355,7 +357,7 @@ function TabActividades() {
         const pago = editDestajo ? Math.round(rejas*precio*100)/100 : (Number(String(j.pago).replace(/[^0-9.]/g,""))||0);
         return {nombre:j.nombre, pago:pago, rejas:rejas};
       });
-      const url = SHEETS_URL + "?accion=editar_actividad&mes=" + encodeURIComponent(mes) + "&id=" + encodeURIComponent(a.ID) + "&rancho=" + encodeURIComponent(editRancho) + "&actividad=" + encodeURIComponent(editActividad) + "&semana=" + encodeURIComponent(editSemana) + "&jornaleros=" + encodeURIComponent(JSON.stringify(jorn.map(j=>({nombre:j.nombre,pago:j.pago}))));
+      const url = SHEETS_URL + "?accion=editar_actividad&mes=" + encodeURIComponent(mes) + "&id=" + encodeURIComponent(a.ID) + "&rancho=" + encodeURIComponent(editRancho) + "&actividad=" + encodeURIComponent(editActividad) + "&semana=" + encodeURIComponent(editSemana) + "&nota=" + encodeURIComponent(editNota) + "&jornaleros=" + encodeURIComponent(JSON.stringify(jorn.map(j=>({nombre:j.nombre,pago:j.pago}))));
       const d = await (await fetch(url)).json();
       if(!d.ok){ alert("No se pudo: " + (d.error||"error")); setBusy(false); return; }
       if(editDestajo){
@@ -444,6 +446,10 @@ function TabActividades() {
             actividadesUnicas.map(function(v,i){return h("option",{key:i,value:v}, v);}).concat([h("option",{key:"otro",value:"__OTRO__"}, "➕ Otro (escribir)…")])
           ),
           editActividadOtro && h("input", {value:editActividad, onChange:function(e){setEditActividad(e.target.value);}, placeholder:"Escribe la actividad", autoFocus:true, style:{...C.inp,width:"100%",boxSizing:"border-box",marginTop:6}})
+        ),
+        h("div", {style:{marginBottom:12}},
+          h("label", {style:{display:"block",fontSize:11,color:"#6a9050",letterSpacing:1,marginBottom:4}}, "COMENTARIOS"),
+          h("textarea", {value:editNota, onChange:function(e){setEditNota(e.target.value);}, rows:2, placeholder:"Comentario o nota (opcional)", style:{...C.inp,width:"100%",boxSizing:"border-box",resize:"vertical",lineHeight:1.4}})
         ),
         h("div", {style:{display:"flex",alignItems:"center",gap:8,marginBottom:12}},
           h("label", {style:{fontSize:11,color:"#6a9050",letterSpacing:1}}, "SEMANA #"),
