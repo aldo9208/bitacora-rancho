@@ -658,6 +658,7 @@ function TabJornaleros() {
   const semanas = (data && data.semanas) || [];
   const totalSemana = (data && data.total_semana) || {};
   const cosecha = useFetch(SHEETS_URL + "?accion=reporte_cosecha&mes=" + encodeURIComponent(mes), [mes]);
+  const jornalDia = useFetch(SHEETS_URL + "?accion=jornal_por_dia&mes=" + encodeURIComponent(mes), [mes]);
   const cosechaJorn = {}; ((cosecha.data && cosecha.data.por_jornalero) || []).forEach(c => { cosechaJorn[c.jornalero] = c; });
   const totalCosecha = (cosecha.data && cosecha.data.total_pago) || 0;
   const totalRejas = (cosecha.data && cosecha.data.total_rejas) || 0;
@@ -682,6 +683,21 @@ function TabJornaleros() {
       h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "JORNALES"), h("div", {style:{fontSize:22,fontWeight:800,color:"#b8e870"}}, fmtMXN(totalJornales))),
       h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "🍋 COSECHA (DESTAJO)"), h("div", {style:{fontSize:22,fontWeight:800,color:"#e8c050"}}, fmtMXN(totalCosecha)), h("div", {style:{fontSize:11,color:"#7a9a68",marginTop:2}}, fmtNum(totalRejas) + " rejas"))
     ),
+      (jornalDia.data && jornalDia.data.por_semana && jornalDia.data.por_semana.length>0 && h("div",{style:{marginTop:24}},
+        h("div",{style:{fontSize:11,color:"#5a8040",letterSpacing:2,marginBottom:4}},"👷 JORNAL POR SEMANA"),
+        h("div",{style:{fontSize:13,color:"#7a9a68",marginBottom:12}},"Raya por día y jornalero"),
+        jornalDia.data.por_semana.map(function(sem){
+          var dias=sem.dias||[];
+          var head=[h("th",{key:"j"},"Jornalero")].concat(dias.map(function(d){return h("th",{key:d,style:{textAlign:"right"}}, d);})).concat([h("th",{key:"tp",style:{textAlign:"right"}},"Total")]);
+          var rows=(sem.jornaleros||[]).map(function(jr){
+            var cells=[h("td",{key:"n"}, jr.nombre)].concat(dias.map(function(d){return h("td",{key:d,style:{textAlign:"right"}}, (jr.dias&&jr.dias[d])? fmtMXN(jr.dias[d]) : "—");})).concat([h("td",{key:"t",style:{textAlign:"right",fontWeight:700}}, fmtMXN(jr.total))]);
+            return h("tr",{key:jr.nombre}, cells);
+          });
+          var cuadCells=[h("td",{key:"n"},"CUADRILLA")].concat(dias.map(function(d){var tt=(sem.jornaleros||[]).reduce(function(s,jr){return s+((jr.dias&&jr.dias[d])||0);},0); return h("td",{key:d,style:{textAlign:"right"}}, fmtMXN(tt));})).concat([h("td",{key:"t",style:{textAlign:"right"}}, fmtMXN((sem.jornaleros||[]).reduce(function(s,jr){return s+(jr.total||0);},0)))]);
+          rows.push(h("tr",{key:"__cuad",style:{borderTop:"2px solid rgba(255,255,255,0.15)",fontWeight:700,color:"#b8e870"}}, cuadCells));
+          return h("div",{key:"jd"+sem.semana,style:{...C.card,marginBottom:12,padding:0,overflowX:"auto"}}, h("div",{style:{padding:"10px 12px",borderBottom:"1px solid rgba(255,255,255,0.08)",fontWeight:700,color:"#b8e870"}}, sem.semana), h("table",{style:{minWidth:"100%"}}, h("thead",null, h("tr",null, head)), h("tbody",null, rows)));
+        })
+      )),
       (cosecha.data && cosecha.data.por_semana && cosecha.data.por_semana.length>0 && h("div",{style:{marginTop:24}},h("div",{style:{fontSize:11,color:"#5a8040",letterSpacing:2,marginBottom:4}},"🍋 COSECHA POR SEMANA"),h("div",{style:{fontSize:13,color:"#7a9a68",marginBottom:12}},"Destajo por rejas — rejas por día y jornalero"),cosecha.data.por_semana.map(function(sem){ var dias=sem.dias||[]; return h("div",{key:sem.semana,style:{...C.card,marginBottom:12,padding:0,overflowX:"auto"}},h("div",{style:{padding:"10px 12px",borderBottom:"1px solid rgba(255,255,255,0.08)",fontWeight:700,color:"#e8c050"}}, sem.semana),h("table",{style:{minWidth:"100%"}},h("thead",null, h("tr",null, [h("th",{key:"j"},"Jornalero")].concat(dias.map(function(d){return h("th",{key:d,style:{textAlign:"right"}}, d);})).concat([h("th",{key:"tr",style:{textAlign:"right"}},"Rejas"),h("th",{key:"tp",style:{textAlign:"right"}},"Pago")]))),h("tbody",null, (sem.jornaleros||[]).map(function(jc,ki){ return h("tr",{key:ki}, [h("td",{key:"n",style:{color:"#b8e870"}}, jc.jornalero)].concat(dias.map(function(d){ var v=(jc.por_dia||{})[d]; return h("td",{key:d,style:{textAlign:"right",color:v?"#c8e898":"#4a5a40"}}, v?fmtNum(v):"–"); })).concat([h("td",{key:"tr",style:{textAlign:"right",fontWeight:700,color:"#90c848"}}, fmtNum(jc.rejas)),h("td",{key:"tp",style:{textAlign:"right",color:"#e8c050"}}, fmtMXN(jc.pago))])); }).concat([ h("tr",{key:"cuad",style:{background:"rgba(80,160,30,0.08)"}}, [h("td",{key:"n",style:{fontWeight:700,color:"#7a9a68",fontSize:11,letterSpacing:1.5}},"CUADRILLA")].concat(dias.map(function(d){ var tt=(sem.por_dia_total||{})[d]; return h("td",{key:d,style:{textAlign:"right",fontWeight:700,color:"#90c848"}}, tt?fmtNum(tt.rejas):"–"); })).concat([h("td",{key:"tr",style:{textAlign:"right",fontWeight:800,color:"#90c848"}}, fmtNum(sem.total_rejas)),h("td",{key:"tp",style:{textAlign:"right",fontWeight:800,color:"#e8c870"}}, fmtMXN(sem.total_pago))])) ])))); }))),
     loading && h("div", {style:{color:"#6a8a50",textAlign:"center",padding:30}}, "Cargando…"),
     error && h("div", {style:{color:"#e08060",padding:14,background:"rgba(200,80,60,0.1)",borderRadius:10}}, "Error: " + error),
