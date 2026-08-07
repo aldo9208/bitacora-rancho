@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bolsa de Ranchos</title>
+<style>
+  :root{
+    --bg:#F5F7F2;--surface:#FFFFFF;--ink:#17190F;--ink-soft:#59604B;--line:#E2E6D8;
+    --green:#1B7A4B;--green-soft:#E4F1E9;--red:#BE3A34;--red-soft:#F8E7E5;--gray-soft:#EEF0E8;
+    --amber:#C77A1B;--amber-soft:#FBEEDF;--blue:#2C5C8A;--blue-soft:#E7EFF6;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);line-height:1.45;padding-bottom:60px}
+  .num{font-variant-numeric:tabular-nums}
+  .wrap{max-width:640px;margin:0 auto;padding:0 16px}
+  header{background:#123D28;color:#fff;padding:18px 0 16px}
+  header .wrap{display:flex;align-items:center;gap:12px}
+  .logo{width:38px;height:38px;border-radius:9px;background:var(--green);display:grid;place-items:center;font-size:20px;flex:0 0 auto}
+  header h1{font-size:18px;font-weight:700}
+  header .sub{font-size:12px;color:#AEC4B6;margin-top:1px}
+  .links{margin-left:auto;display:flex;gap:7px;flex-wrap:wrap}
+  .links a{text-decoration:none;background:#1C4E34;color:#DDEAE0;font-size:12.5px;font-weight:700;padding:8px 12px;border-radius:9px}
+  section{margin-top:16px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .config{background:var(--amber-soft);border:1px solid #F0CDA1;color:#9A5512;border-radius:10px;padding:10px 13px;font-size:13px;font-weight:600;margin-top:14px}
+  .hidden{display:none!important}
+  .bolsa-top{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+  .bolsa-saldo{background:var(--green-soft);border-radius:12px;padding:14px 18px;flex:1;min-width:180px}
+  .bolsa-saldo .l{font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.4px}
+  .bolsa-saldo .v{font-size:30px;font-weight:800;color:var(--green);letter-spacing:-.5px;margin-top:2px}
+  .bolsa-mini{display:flex;flex-direction:column;gap:7px;justify-content:center;min-width:180px}
+  .bolsa-mini label{font-size:11px;font-weight:700;color:var(--ink-soft)}
+  .bolsa-kv{display:flex;justify-content:space-between;font-size:13px;font-weight:600;color:var(--ink-soft);border-top:1px solid var(--line);padding-top:6px}
+  .bolsa-kv b.in{color:var(--green)} .bolsa-kv b.out{color:var(--red)}
+  .bolsa-inp{display:flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:8px;padding:5px 9px;background:#FCFCF8;margin-top:3px}
+  .bolsa-inp span{color:var(--ink-soft);font-size:13px}
+  .bolsa-inp input{border:none;background:none;width:100%;font-size:14px;font-family:inherit;outline:none}
+  .acciones{display:flex;gap:9px;margin:14px 0 4px}
+  .acciones .btn{flex:1}
+  .btn{border:1px solid var(--line);background:#fff;color:var(--ink);font-weight:700;font-size:13.5px;padding:10px 13px;border-radius:10px;cursor:pointer;font-family:inherit;text-align:center}
+  .btn:hover{background:var(--gray-soft)}
+  .btn.green{background:var(--green);color:#fff;border-color:transparent}
+  .btn.red{background:var(--red);color:#fff;border-color:transparent}
+  .btn.sm{padding:6px 10px;font-size:12px}
+  .mes-tabs{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0 10px}
+  .mes-tab{border:1px solid var(--line);background:#fff;color:var(--ink-soft);font-weight:700;font-size:12.5px;padding:7px 13px;border-radius:20px;cursor:pointer;font-family:inherit}
+  .mes-tab.on{background:var(--ink);color:#fff;border-color:transparent}
+  .bolsa-head{display:flex;align-items:center;justify-content:space-between;margin:8px 0}
+  .bolsa-toggle{border:none;background:none;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--green);cursor:pointer;display:flex;align-items:center;gap:6px;padding:0}
+  .bolsa-toggle .chev{transition:.2s;font-size:15px;color:var(--ink-soft)}
+  .bolsa-toggle.open .chev{transform:rotate(90deg)}
+  .bolsa-cnt{background:var(--gray-soft);color:var(--ink-soft);border-radius:10px;padding:1px 7px;font-size:10.5px}
+  .bm-row{display:flex;align-items:center;gap:11px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;margin-bottom:7px;background:#fff}
+  .bm-mid{flex:1;min-width:0}
+  .bm-mid .l1{font-weight:700;font-size:13.5px}
+  .bm-mid .l2{font-size:11.5px;color:var(--ink-soft)}
+  .bm-amt{font-weight:700;font-size:13.5px}
+  .bm-amt.in{color:var(--green)} .bm-amt.out{color:var(--red)}
+  .bm-del{cursor:pointer;color:var(--ink-soft);font-size:16px;border:none;background:none;padding:2px 6px;border-radius:6px}
+  .bm-del:hover{background:var(--red-soft);color:var(--red)}
+  .vsmall{border:1px solid var(--line);background:#fff;font-size:11.5px;font-weight:700;padding:4px 8px;border-radius:7px;cursor:pointer;font-family:inherit}
+  .loading{text-align:center;color:var(--ink-soft);font-size:13.5px;padding:16px}
+  .modal{position:fixed;inset:0;background:rgba(10,15,8,.55);display:none;align-items:center;justify-content:center;z-index:50;padding:16px}
+  .modal.open{display:flex}
+  .sheet{background:#fff;border-radius:16px;max-width:420px;width:100%;padding:20px;max-height:90vh;overflow:auto}
+  .sheet h3{font-size:16px;font-weight:700;margin-bottom:14px}
+  .fld{margin-bottom:13px}
+  .fld label{display:block;font-size:12px;font-weight:700;color:var(--ink-soft);margin-bottom:5px}
+  .fld input{width:100%;border:1px solid var(--line);border-radius:9px;padding:10px;font-size:14px;font-family:inherit;background:#FCFCF8}
+  .fld.row2{display:flex;gap:10px}.fld.row2>div{flex:1}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+  .chip{border:1px solid var(--line);background:#FCFCF8;border-radius:16px;padding:5px 10px;font-size:11.5px;font-weight:600;cursor:pointer}
+  .chip:hover{background:var(--green-soft);border-color:var(--green)}
+  .rowG{display:flex;gap:9px;margin-top:6px}.rowG .btn{flex:1}
+  .g-foto{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:9px;padding:7px 9px;background:#FCFCF8}
+  .g-foto img{width:44px;height:44px;object-fit:cover;border-radius:7px}
+  .g-foto span{flex:1;font-size:12.5px;font-weight:600;color:var(--green)}
+  .imgmodal{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:60;padding:20px}
+  .imgmodal.open{display:flex}.imgmodal img{max-width:100%;max-height:90vh;border-radius:8px}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="logo">🍋</div>
+    <div><h1>Bolsa de Ranchos</h1><div class="sub">Ingresos, gastos y préstamos del rancho</div></div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div id="avisoConfig" class="config hidden">⚠️ Falta configurar la liga del backend (API_URL).</div>
+  <section>
+    <div class="card">
+      <div class="bolsa-top">
+        <div class="bolsa-saldo"><div class="l">Saldo disponible</div><div class="v num" id="saldo">$0</div></div>
+        <div class="bolsa-mini">
+          <label>Saldo inicial<div class="bolsa-inp"><span>$</span><input id="inicial" type="number" step="0.01" inputmode="decimal" value="0"></div></label>
+          <div class="bolsa-kv"><span>+ Ingresos (mes)</span><b class="num in" id="totIn">$0</b></div>
+          <div class="bolsa-kv"><span>− Gastos (mes)</span><b class="num out" id="totOut">$0</b></div>
+        </div>
+      </div>
+      <div class="acciones">
+        <button class="btn green" id="btnIngreso">+ Ingreso</button>
+        <button class="btn red" id="btnGasto">− Gasto</button>
+      </div>
+      <div id="mesTabs" class="mes-tabs"></div>
+      <div class="bolsa-head">
+        <button class="bolsa-toggle" id="toggle"><span class="chev">›</span> Movimientos <span id="cnt" class="bolsa-cnt"></span></button>
+      </div>
+      <div id="movs" class="hidden"><div class="loading">Cargando…</div></div>
+    </div>
+  </section>
+</div>
+
+<div class="modal" id="modal">
+  <div class="sheet">
+    <h3 id="mTit">Registrar</h3>
+    <div class="fld">
+      <label>Concepto</label>
+      <div class="chips" id="chips"></div>
+      <input id="concepto" placeholder="ej. Raya" autocomplete="off">
+    </div>
+    <div class="fld row2">
+      <div><label>Importe</label><div class="bolsa-inp"><span>$</span><input id="importe" type="number" step="0.01" inputmode="decimal" placeholder="0.00"></div></div>
+      <div><label>Fecha</label><input id="fecha" type="date"></div>
+    </div>
+    <div class="fld">
+      <label>Comprobante (opcional)</label>
+      <div id="fotoBox"></div>
+    </div>
+    <div class="rowG">
+      <button class="btn" id="cancel">Cancelar</button>
+      <button class="btn green" id="guardar">Guardar</button>
+    </div>
+  </div>
+</div>
+<div class="imgmodal" id="imgmodal"><img id="imgbig" src=""></div>
+
+<script>
+const API_URL = "https://script.google.com/macros/s/AKfycbz7WxtZQyAJabvuLeqprEOSlbeurweuhxq_h9HXGtv7wxkggm9QpvJQgWFmSty1u-cWVQ/exec";
+const $ = id => document.getElementById(id);
+const fmt = n => '$'+(Number(n)||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
+if(!API_URL) $('avisoConfig').classList.remove('hidden');
+
+const CONCEPTOS = {
+  entrada: ['Venta no facturada','Préstamo de Bellíssima','Préstamo de Moto Pro','Otro ingreso'],
+  salida:  ['Raya','Extra','Nómina jornaleros','Insumos','Combustible','Renta','Otro gasto']
+};
+let MOVS=[], mesSel=null, gTipo='salida', gFoto=null;
+
+(async function init(){ await cargar(); })();
+
+async function cargar(){
+  try{
+    const res = await fetch(API_URL+'?action=bolsa_movs&bolsa=rancho&t='+Date.now(), {cache:'no-store'});
+    const data = await res.json();
+    MOVS = (data && data.ok && data.movs) ? data.movs : [];
+  }catch(e){ MOVS=[]; }
+  render();
+}
+
+function mesDe(m){ return String(m.fecha||m.creado||'').slice(0,7); }
+function nombreMes(m){ const N=['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']; const p=m.split('-'); return (N[parseInt(p[1],10)]||m)+' '+p[0]; }
+
+function render(){
+  const inicial = MOVS.filter(m=>m.tipo==='inicial').reduce((s,m)=>s+(Number(m.importe)||0),0);
+  const entradas = MOVS.filter(m=>m.tipo==='entrada');
+  const salidas  = MOVS.filter(m=>m.tipo==='salida');
+  const saldo = inicial + entradas.reduce((s,m)=>s+(Number(m.importe)||0),0) - salidas.reduce((s,m)=>s+(Number(m.importe)||0),0);
+  $('saldo').textContent = fmt(saldo);
+  if(document.activeElement!==$('inicial')) $('inicial').value = inicial || 0;
+
+  const reales = MOVS.filter(m=>m.tipo!=='inicial');
+  const meses = [...new Set(reales.map(mesDe).filter(Boolean))].sort().reverse();
+  if(!mesSel || meses.indexOf(mesSel)<0) mesSel = meses[0] || '';
+  $('mesTabs').innerHTML = meses.map(m=>'<button class="mes-tab'+(m===mesSel?' on':'')+'" data-m="'+m+'">'+nombreMes(m)+'</button>').join('');
+  $('mesTabs').querySelectorAll('.mes-tab').forEach(b=>b.onclick=()=>{ mesSel=b.dataset.m; render(); });
+
+  const enMes = m => !mesSel || mesDe(m)===mesSel;
+  $('totIn').textContent = fmt(entradas.filter(enMes).reduce((s,m)=>s+(Number(m.importe)||0),0));
+  $('totOut').textContent = fmt(salidas.filter(enMes).reduce((s,m)=>s+(Number(m.importe)||0),0));
+
+  const lista = reales.filter(enMes).sort((a,b)=> String(b.fecha||b.creado).localeCompare(String(a.fecha||a.creado)));
+  $('cnt').textContent = lista.length || '';
+  if(!lista.length){ $('movs').innerHTML='<div class="loading">Sin movimientos en este mes.</div>'; return; }
+  $('movs').innerHTML = lista.map(m=>{
+    const inn = m.tipo==='entrada';
+    const foto = (m.foto && String(m.foto).indexOf('ERROR')!==0)
+      ? '<button class="vsmall" style="margin-right:6px" onclick="verFoto(\''+String(m.foto).replace(/'/g,"")+'\',this)">📷</button>' : '';
+    return '<div class="bm-row"><div class="bm-mid"><div class="l1">'+(m.concepto||(inn?'Ingreso':'Gasto'))+'</div>'+
+      '<div class="l2">'+String(m.fecha||'').slice(0,10)+'</div></div>'+
+      '<div class="bm-amt '+(inn?'in':'out')+'">'+(inn?'+':'−')+fmt(m.importe)+'</div>'+foto+
+      '<button class="bm-del" onclick="borrar(\''+String(m.id).replace(/'/g,"")+'\')">✕</button></div>';
+  }).join('');
+}
+
+$('toggle').onclick=()=>{ const h=$('movs').classList.toggle('hidden'); $('toggle').classList.toggle('open',!h); };
+
+// Saldo inicial
+let tS=null;
+$('inicial').addEventListener('input',()=>{ clearTimeout(tS); tS=setTimeout(async()=>{
+  const val=Number($('inicial').value)||0;
+  MOVS = MOVS.filter(m=>m.tipo!=='inicial');
+  const mov={ id:'INI', fecha:'', tipo:'inicial', concepto:'Saldo inicial', importe:val, ref_corte:'' };
+  MOVS.push(mov); render();
+  try{ await fetch(API_URL,{method:'POST',body:JSON.stringify({action:'bolsa_mov',mov:Object.assign({},mov,{bolsa:'rancho'})})}); }catch(e){}
+},700); });
+
+// Modal
+function abrir(tipo){
+  gTipo=tipo; gFoto=null;
+  $('mTit').textContent = tipo==='entrada' ? 'Registrar ingreso' : 'Registrar gasto';
+  $('concepto').value=''; $('importe').value=''; $('fecha').value=new Date().toISOString().slice(0,10);
+  $('chips').innerHTML = CONCEPTOS[tipo].map(c=>'<span class="chip">'+c+'</span>').join('');
+  $('chips').querySelectorAll('.chip').forEach(ch=>ch.onclick=()=>{ $('concepto').value=ch.textContent; });
+  pintarFoto();
+  $('guardar').className = tipo==='entrada' ? 'btn green' : 'btn red';
+  $('modal').classList.add('open');
+}
+$('btnIngreso').onclick=()=>abrir('entrada');
+$('btnGasto').onclick=()=>abrir('salida');
+$('cancel').onclick=()=>$('modal').classList.remove('open');
+$('modal').onclick=e=>{ if(e.target===$('modal')) $('modal').classList.remove('open'); };
+
+function pintarFoto(){
+  const box=$('fotoBox');
+  if(gFoto){
+    box.innerHTML='<div class="g-foto"><img src="'+gFoto+'"><span>Comprobante listo</span><button class="bm-del" id="fx">✕</button></div>';
+    $('fx').onclick=()=>{ gFoto=null; pintarFoto(); };
+  } else {
+    box.innerHTML='<button class="btn sm" id="fbtn">📷 Tomar foto</button>';
+    $('fbtn').onclick=()=>{ const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.capture='environment';
+      inp.onchange=e=>{ const f=e.target.files[0]; if(!f) return; comprimir(f,d=>{ gFoto=d; pintarFoto(); }); }; inp.click(); };
+  }
+}
+function comprimir(file,cb){
+  const r=new FileReader();
+  r.onload=e=>{ const img=new Image(); img.onload=()=>{
+    let w=img.width,h=img.height; const max=1280;
+    if(w>h&&w>max){ h=Math.round(h*max/w); w=max; } else if(h>=w&&h>max){ w=Math.round(w*max/h); h=max; }
+    const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h);
+    let q=0.7,out=c.toDataURL('image/jpeg',q); while(out.length>270000&&q>0.4){ q-=0.1; out=c.toDataURL('image/jpeg',q); } cb(out);
+  }; img.src=e.target.result; }; r.readAsDataURL(file);
+}
+
+$('guardar').onclick=async()=>{
+  const concepto=$('concepto').value.trim(); const importe=Number($('importe').value)||0; const fecha=$('fecha').value;
+  if(!concepto){ alert('Escribe el concepto.'); return; }
+  if(!importe){ alert('Escribe el importe.'); return; }
+  const mov={ id:'R'+Date.now(), fecha, tipo:gTipo, concepto, importe, ref_corte:'' };
+  const payload=Object.assign({},mov,{foto_b64:gFoto||'',bolsa:'rancho'});
+  MOVS.push(mov); render();
+  $('modal').classList.remove('open'); gFoto=null;
+  try{ const res=await fetch(API_URL,{method:'POST',body:JSON.stringify({action:'bolsa_mov',mov:payload})});
+    const d=await res.json(); if(d&&d.ok&&d.foto){ const g=MOVS.find(x=>x.id===mov.id); if(g){ g.foto=d.foto; render(); } }
+  }catch(e){}
+};
+
+window.borrar=async function(id){
+  if(!confirm('¿Quitar este movimiento?')) return;
+  MOVS=MOVS.filter(m=>String(m.id)!==String(id)); render();
+  try{ await fetch(API_URL,{method:'POST',body:JSON.stringify({action:'bolsa_borrar',id,bolsa:'rancho'})}); }catch(e){}
+};
+window.verFoto=async function(fid,btn){
+  const t=btn.textContent; btn.textContent='…';
+  try{ const res=await fetch(API_URL+'?action=obtener_voucher&id='+encodeURIComponent(fid)); const d=await res.json();
+    if(d.ok){ $('imgbig').src=d.data; $('imgmodal').classList.add('open'); } }catch(e){}
+  btn.textContent=t;
+};
+$('imgmodal').onclick=()=>$('imgmodal').classList.remove('open');
+</script>
+</body>
+</html>
