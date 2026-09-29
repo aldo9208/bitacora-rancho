@@ -2181,6 +2181,41 @@ function TabIngresosLimon() {
   return h("div", null, h("div",{style:{fontSize:11,color:"#5a8040",letterSpacing:2.5,marginBottom:2}},"INGRESOS"), h("div",{style:{fontSize:20,fontWeight:700,color:"#b8e870",marginBottom:14}},"Ventas de limón (a crédito)"), toggle, vista==="reporte" ? repView : h("div",null, stats, repBanner, formEl, cuentas, filtros, listaEl));
 }
 
+function TabLluvias() {
+  const [reload, setReload] = useState(0);
+  const [registros, setRegistros] = useState([]);
+  const [porMes, setPorMes] = useState({});
+  const [porRancho, setPorRancho] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [nFecha, setNFecha] = useState(new Date().toISOString().slice(0,10));
+  const [nRancho, setNRancho] = useState('');
+  const [nRanchoOtro, setNRanchoOtro] = useState(false);
+  const [nMm, setNMm] = useState('');
+  const [nNota, setNNota] = useState('');
+  const [fRancho, setFRancho] = useState('');
+  useEffect(function(){ fetch(SHEETS_URL + '?accion=obtener_lluvias&cb=' + Date.now()).then(function(r){return r.json();}).then(function(j){ setRegistros(j.registros||[]); setPorMes(j.porMes||{}); setPorRancho(j.porRancho||{}); }).catch(function(){}); }, [reload]);
+  function refrescar(){ setReload(function(x){return x+1;}); }
+  function post(o, cb){ setBusy(true); fetch(SHEETS_URL,{method:'POST',body:JSON.stringify(o)}).then(function(r){return r.json();}).then(function(){ setBusy(false); if(cb)cb(); setTimeout(refrescar,700); }).catch(function(){ setBusy(false); alert('Error de conexión'); }); }
+  var RANCHOS = ["Rancho Vista Hermosa · Tabla 1 (8 ha)","Rancho Vista Hermosa · Tabla 2 (5 ha)","Rancho Vista Hermosa · Plantel (8.5 ha)","Rancho Vista Hermosa · Plantel Nuevo (3.5 ha)","Rancho Loma Bonita · Naranjal 1 (5.84 ha)","Rancho Loma Bonita · Naranjal 2 (1.5 ha)","Rancho Loma Bonita · Limonar (6 ha)","Rancho La Unión · Tabla 1","Rancho La Unión · Tabla 2","Rancho La Unión · Tabla 3","Rancho El Arenal · Casa La Unión","Rancho El Arenal · Bellissima"];
+  var MESES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  function mesNombre(ym){ if(!ym||ym.length<7) return ym||'—'; var p=ym.split('-'); var n=parseInt(p[1],10)-1; return (MESES[n]?MESES[n].charAt(0).toUpperCase()+MESES[n].slice(1):p[1])+' '+p[0]; }
+  function fmm(x){ return (Math.round((Number(x)||0)*10)/10).toLocaleString('es-MX'); }
+  function guardar(){ if(!nRancho||!nMm){ alert('Falta el rancho y los milímetros'); return; } post({accion:'guardar_lluvia',fecha:nFecha,rancho:nRancho,mm:nMm,nota:nNota}, function(){ setNMm(''); setNNota(''); }); }
+  function eliminar(r){ if(!confirm('¿Eliminar este registro de lluvia?')) return; post({accion:'eliminar_lluvia',id:r.id}); }
+  var lista = registros.filter(function(r){ return !fRancho || r.rancho===fRancho; }).sort(function(a,b){ return (b.fecha||'').localeCompare(a.fecha||''); });
+  var meses = Object.keys(porMes).sort().reverse();
+  var maxMes = meses.reduce(function(m,k){ return Math.max(m, porMes[k]||0); }, 0) || 1;
+  var totalGen = Object.keys(porMes).reduce(function(s,k){ return s+(porMes[k]||0); }, 0);
+  var ranchosResumen = Object.keys(porRancho).map(function(k){ return {rancho:k, mm:porRancho[k]}; }).sort(function(a,b){ return b.mm-a.mm; });
+  var lbl={display:'block',fontSize:11,color:'#6a9050',letterSpacing:1,marginBottom:4};
+  var form = h('div',{style:{...C.card,marginBottom:16}}, h('div',{style:{fontSize:13,fontWeight:700,color:'#b8e870',marginBottom:10}},'➕ Registrar lluvia'), h('div',{style:{marginBottom:10}}, h('label',{style:lbl},'FECHA'), h('input',{type:'date',value:nFecha,onChange:function(e){setNFecha(e.target.value);},style:C.inp})), h('div',{style:{marginBottom:10}}, h('label',{style:lbl},'RANCHO'), nRanchoOtro ? h('input',{value:nRancho,onChange:function(e){setNRancho(e.target.value);},placeholder:'Nombre del rancho',autoFocus:true,style:C.inp}) : h('select',{value:nRancho,onChange:function(e){ var v=e.target.value; if(v==='__OTRO__'){ setNRanchoOtro(true); setNRancho(''); } else setNRancho(v); },style:C.inp}, [h('option',{key:'x',value:''},'— Elegir rancho —')].concat(RANCHOS.map(function(x,i){return h('option',{key:i,value:x},x);})).concat([h('option',{key:'o',value:'__OTRO__'},'➕ Otro…')]))), h('div',{style:{marginBottom:10}}, h('label',{style:lbl},'MILÍMETROS (mm)'), h('input',{type:'number',value:nMm,onChange:function(e){setNMm(e.target.value);},placeholder:'ej. 24.5',style:C.inp})), h('div',{style:{marginBottom:12}}, h('label',{style:lbl},'NOTA (opcional)'), h('input',{value:nNota,onChange:function(e){setNNota(e.target.value);},style:C.inp})), h('button',{onClick:guardar,disabled:busy,style:{...C.bigBtn,opacity:busy?0.6:1}}, busy?'Guardando…':'✓ Guardar lluvia'));
+  var barras = meses.length===0 ? null : h('div',{style:{marginBottom:18}}, h('div',{style:{fontSize:11,color:'#5a8040',letterSpacing:2,marginBottom:8}},'LLUVIA POR MES (mm)'), meses.map(function(m){ var w=Math.round((porMes[m]||0)/maxMes*100); return h('div',{key:m,style:{display:'flex',alignItems:'center',gap:8,marginBottom:6}}, h('div',{style:{width:120,fontSize:12,color:'#9ab080'}}, mesNombre(m)), h('div',{style:{flex:1,background:'rgba(255,255,255,0.05)',borderRadius:6,height:18}}, h('div',{style:{width:w+'%',background:'#3a7ab0',height:'100%',borderRadius:6}})), h('div',{style:{width:70,textAlign:'right',fontSize:12,color:'#b8d8f0',fontWeight:700}}, fmm(porMes[m]||0))); }));
+  var porRanchoEl = ranchosResumen.length===0 ? null : h('div',{style:{marginBottom:18}}, h('div',{style:{fontSize:11,color:'#5a8040',letterSpacing:2,marginBottom:8}},'ACUMULADO POR RANCHO (mm)'), h('div',{style:{overflowX:'auto'}}, h('table',{style:{minWidth:'100%'}}, h('thead',null,h('tr',null,h('th',null,'Rancho'),h('th',{style:{textAlign:'right'}},'mm'))), h('tbody',null, ranchosResumen.map(function(o){ return h('tr',{key:o.rancho}, h('td',null,o.rancho), h('td',{style:{textAlign:'right',color:'#b8d8f0',fontWeight:700}}, fmm(o.mm))); })))));
+  var filtro = h('select',{value:fRancho,onChange:function(e){setFRancho(e.target.value);},style:{...C.inp,width:'auto',marginBottom:12}}, [h('option',{key:'x',value:''},'Todos los ranchos')].concat(Object.keys(porRancho).map(function(x,i){return h('option',{key:i,value:x},x);})));
+  var listaEl = lista.length===0 ? h('div',{style:{color:'#7a9a68',fontStyle:'italic',padding:'16px 0'}},'Sin registros de lluvia.') : lista.map(function(r){ return h('div',{key:r.id,style:{...C.card,display:'flex',justifyContent:'space-between',alignItems:'center'}}, h('div',null, h('div',{style:{fontWeight:700,color:'#d8f8a0',fontSize:15}}, fmm(r.mm)+' mm'), h('div',{style:{fontSize:12,color:'#9ab080',marginTop:2}}, fmtFecha(r.fecha)+' · '+r.rancho+(r.nota?(' · '+r.nota):''))), h('button',{onClick:function(){eliminar(r);},style:{background:'#6a2020',border:'none',borderRadius:8,color:'#e8d0d0',padding:'6px 10px',fontSize:12,cursor:'pointer'}},'🗑')); });
+  return h('div', null, h('div',{style:{fontSize:11,color:'#5a8040',letterSpacing:2.5,marginBottom:2}},'CLIMA'), h('div',{style:{fontSize:20,fontWeight:700,color:'#b8e870',marginBottom:4}},'Lluvias'), totalGen>0?h('div',{style:{fontSize:13,color:'#9ab080',marginBottom:14}},'Total acumulado: '+fmm(totalGen)+' mm'):h('div',{style:{marginBottom:14}}), form, barras, porRanchoEl, filtro, listaEl);
+}
+
 function App() {
   const [logged, setLogged] = useState(() => load("admin_ok", false));
   const [tab, setTab] = useState("actividades");
@@ -2195,7 +2230,7 @@ function App() {
     {id:"polizas_agro",label:"📒 Pólizas agro"},
     {id:"cosecha",     label:"🍋 Cosecha"},
     {id:"ciclos",      label:"🔄 Ciclos"},
-    {id:"ingresos_limon", label:"🍋 Ingresos limón"},
+    {id:"ingresos_limon", label:"🍋 Ingresos limón"}, {id:"lluvias", label:"🌧️ Lluvias"},
   ];
   return h("div", {style:{background:"#0e1a0a",minHeight:"100vh"}},
     h("div", {style:C.hdr},
@@ -2223,7 +2258,7 @@ function App() {
       tab === "polizas_agro"&& h(TabPolizasAgro),
       tab === "cosecha"     && h(TabCosecha),
       tab === "ciclos"      && h(TabCiclos),
-      tab === "ingresos_limon" && h(TabIngresosLimon)
+      tab === "ingresos_limon" && h(TabIngresosLimon), tab === "lluvias" && h(TabLluvias)
     )
   );
 }
