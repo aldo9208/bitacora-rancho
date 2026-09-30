@@ -491,6 +491,7 @@ function TabAplicaciones() {
   const aplicaciones = (data && data.aplicaciones) || [];
   const [filtroProducto, setFiltroProducto] = useState("");
   const [filtroRancho, setFiltroRancho] = useState("");
+  const [filtroMes, setFiltroMes] = useState("");
   const [editId, setEditId] = useState(null);
   const [editVal, setEditVal] = useState("");
   const [confAnular, setConfAnular] = useState(null);
@@ -499,9 +500,14 @@ function TabAplicaciones() {
   const [volVal, setVolVal] = useState("");
   const productos = [...new Set(aplicaciones.map(a => a.nombre_producto).filter(Boolean))];
   const ranchos = [...new Set(aplicaciones.map(a => a.rancho).filter(Boolean))];
+  function _mesDeAp(f){ if(!f) return ""; var s=String(f); var m=s.match(/(\d{4})-(\d{2})/); if(m) return m[1]+"-"+m[2]; var d=new Date(s); if(!isNaN(d.getTime())) return d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2); return ""; }
+  var _MESES_AP=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+  function _mesNombreAp(ym){ if(!ym||ym.length<7) return ym||"—"; var p=ym.split("-"); var n=parseInt(p[1],10)-1; return (_MESES_AP[n]?_MESES_AP[n].charAt(0).toUpperCase()+_MESES_AP[n].slice(1):p[1])+" "+p[0]; }
+  const meses = [...new Set(aplicaciones.map(a => _mesDeAp(a.fecha)).filter(Boolean))].sort().reverse();
   const filtradas = aplicaciones.filter(a => {
     if (filtroProducto && a.nombre_producto !== filtroProducto) return false;
     if (filtroRancho && a.rancho !== filtroRancho) return false;
+    if (filtroMes && _mesDeAp(a.fecha) !== filtroMes) return false;
     return true;
   });
   const totalCosto = filtradas.reduce((s,a) => s + Number(a.costo_total||0), 0);
@@ -562,6 +568,12 @@ function TabAplicaciones() {
     h("div", {style:{marginBottom:18}},
       h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:2,marginBottom:4}}, "BITÁCORA"),
       h("div", {style:{fontSize:22,fontWeight:700,color:"#b8e870"}}, "Aplicaciones de agroquímicos")
+    ),
+    meses.length > 0 && h("div", {style:{marginBottom:14}},
+      h("div", {style:{fontSize:10,color:"#5a7a40",letterSpacing:1.5,marginBottom:6}}, "MES"),
+      h("select", {value:filtroMes,onChange:e=>setFiltroMes(e.target.value),style:{...C.inp,maxWidth:260}},
+        [h("option",{key:"all",value:""},"Todos los meses")].concat(meses.map(m=>h("option",{key:m,value:m},_mesNombreAp(m))))
+      )
     ),
     h("div", {className:"grid3",style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:14}},
       h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "APLICACIONES"), h("div", {style:{fontSize:28,fontWeight:800,color:"#b8e870"}}, filtradas.length)),
