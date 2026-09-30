@@ -2277,7 +2277,12 @@ function App() {
 }
 
 function TabCosecha() {
-  const {data, loading, error} = useFetch(SHEETS_URL + "?accion=reporte_cosecha", []);
+  const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const ahora = new Date();
+  const [mes, setMes] = useState(MESES[ahora.getMonth()] + " " + ahora.getFullYear());
+  const mesesOpciones = [];
+  for (let i = 0; i < 8; i++) { const d = new Date(ahora.getFullYear(), ahora.getMonth() - i, 1); mesesOpciones.push(MESES[d.getMonth()] + " " + d.getFullYear()); }
+  const {data, loading, error} = useFetch(SHEETS_URL + "?accion=reporte_cosecha" + (mes === "__ALL__" ? "" : "&mes=" + encodeURIComponent(mes)), [mes]);
   const porJorn = (data && data.por_jornalero) || [];
   const porRancho = (data && data.por_rancho) || [];
   const totalRejas = (data && data.total_rejas) || 0;
@@ -2298,6 +2303,12 @@ function TabCosecha() {
     h("div", {style:{marginBottom:14}},
       h("div", {style:{fontSize:11,color:"#5a8040",letterSpacing:2,marginBottom:4}}, "DESTAJO"),
       h("div", {style:{fontSize:22,fontWeight:700,color:"#b8e870"}}, "Cosecha por reja")
+    ),
+    h("div", {style:{marginBottom:14}},
+      h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1,marginBottom:4}}, "Mes"),
+      h("select", {value:mes,onChange:e=>setMes(e.target.value),style:{...C.inp,maxWidth:280}},
+        mesesOpciones.map(m => h("option", {key:m,value:m}, m)).concat([h("option",{key:"all",value:"__ALL__"},"Todos los meses")])
+      )
     ),
     h("div", {style:{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}},
       h("div", {style:C.stat}, h("div", {style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}}, "REJAS CORTADAS"), h("div", {style:{fontSize:28,fontWeight:800,color:"#b8e870"}}, fmtNum(totalRejas))),
