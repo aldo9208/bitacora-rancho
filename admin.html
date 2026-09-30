@@ -371,7 +371,8 @@ function TabActividades() {
   const mesesOpciones = [];
   for (let i = 0; i < 6; i++) { const d = new Date(ahora.getFullYear(), ahora.getMonth() - i, 1); mesesOpciones.push(MESES[d.getMonth()] + " " + d.getFullYear()); }
   const ranchos = [...new Set(actividades.map(a => a.Lugar).filter(Boolean))];
-  const dias = [...new Set(actividades.map(a => a.Dia).filter(Boolean))];
+  const _ORDEN_DIAS = {lunes:1,martes:2,"miércoles":3,miercoles:3,jueves:4,viernes:5,"sábado":6,sabado:6,domingo:7};
+  const dias = [...new Set(actividades.map(a => a.Dia).filter(Boolean))].sort((a,b)=>((_ORDEN_DIAS[(a||"").toLowerCase()]||99)-(_ORDEN_DIAS[(b||"").toLowerCase()]||99)));
   const semanas = [...new Set(actividades.map(a => a.Semana).filter(Boolean))].sort(function(x,y){return (+(String(x).match(/[0-9]+/)||[0])[0])-(+(String(y).match(/[0-9]+/)||[0])[0]);});
   const filtradas = actividades.filter(a => {
     if (filtroRancho && a.Lugar !== filtroRancho) return false;
@@ -2196,7 +2197,7 @@ function TabLluvias() {
   useEffect(function(){ fetch(SHEETS_URL + '?accion=obtener_lluvias&cb=' + Date.now()).then(function(r){return r.json();}).then(function(j){ setRegistros(j.registros||[]); setPorMes(j.porMes||{}); setPorRancho(j.porRancho||{}); }).catch(function(){}); }, [reload]);
   function refrescar(){ setReload(function(x){return x+1;}); }
   function post(o, cb){ setBusy(true); fetch(SHEETS_URL,{method:'POST',body:JSON.stringify(o)}).then(function(r){return r.json();}).then(function(){ setBusy(false); if(cb)cb(); setTimeout(refrescar,700); }).catch(function(){ setBusy(false); alert('Error de conexión'); }); }
-  var RANCHOS = ["Rancho Vista Hermosa · Tabla 1 (8 ha)","Rancho Vista Hermosa · Tabla 2 (5 ha)","Rancho Vista Hermosa · Plantel (8.5 ha)","Rancho Vista Hermosa · Plantel Nuevo (3.5 ha)","Rancho Loma Bonita · Naranjal 1 (5.84 ha)","Rancho Loma Bonita · Naranjal 2 (1.5 ha)","Rancho Loma Bonita · Limonar (6 ha)","Rancho La Unión · Tabla 1","Rancho La Unión · Tabla 2","Rancho La Unión · Tabla 3","Rancho El Arenal · Casa La Unión","Rancho El Arenal · Bellissima"];
+  var RANCHOS = ["Rancho Vista Hermosa","Rancho Loma Bonita","Rancho La Unión","Rancho El Arenal"];
   var MESES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
   function mesNombre(ym){ if(!ym||ym.length<7) return ym||'—'; var p=ym.split('-'); var n=parseInt(p[1],10)-1; return (MESES[n]?MESES[n].charAt(0).toUpperCase()+MESES[n].slice(1):p[1])+' '+p[0]; }
   function fmm(x){ return (Math.round((Number(x)||0)*10)/10).toLocaleString('es-MX'); }
