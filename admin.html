@@ -1074,7 +1074,8 @@ function TabCombustible() {
         {id:"pendientes",    label:"🟡 Pendientes de contabilizar"},
         {id:"contabilizadas",label:"✅ Contabilizadas"},
         {id:"stock",         label:"📊 Stock y consumos"},
-        {id:"polizas",       label:"📄 Pólizas para COI"}
+        {id:"polizas",       label:"📄 Pólizas para COI"},
+        {id:"pormes",         label:"📅 Por mes"}
       ].map(t => h("button", {key:t.id,onClick:()=>setSubTab(t.id),
         style:{background:subTab===t.id?"rgba(80,160,30,0.18)":"transparent",border:"none",
                color:subTab===t.id?"#d8f8a0":"#7a9a68",padding:"10px 14px",fontSize:13,
@@ -1084,7 +1085,8 @@ function TabCombustible() {
     subTab === "pendientes" && h(SubCombustiblePendientes),
     subTab === "contabilizadas" && h(SubCombustibleContabilizadas),
     subTab === "stock" && h(SubCombustibleStock),
-    subTab === "polizas" && h(SubCombustiblePolizas)
+    subTab === "polizas" && h(SubCombustiblePolizas),
+    subTab === "pormes" && h(SubCombustiblePorMes)
   );
 }
 
@@ -1841,6 +1843,41 @@ function SubCombustibleContabilizadas() {
 }
 
 // ── Sub: Stock y consumos ────────────────────────────────────────────────────
+function SubCombustiblePorMes() {
+  const cont = useFetch(SHEETS_URL + "?accion=obtener_cargas_contabilizadas");
+  const pend = useFetch(SHEETS_URL + "?accion=obtener_cargas_pendientes");
+  const cargas = [].concat((cont.data&&cont.data.cargas)||[], (pend.data&&pend.data.cargas)||[]);
+  const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  function mesKey(f){ var s=String(f||""); var m=s.match(/(\d{4})-(\d{2})/); if(m) return m[1]+"-"+m[2]; var d=new Date(s); if(!isNaN(d.getTime())) return d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2); return ""; }
+  function mesNom(k){ if(!k) return "—"; var p=k.split("-"); return (MESES[parseInt(p[1],10)-1]||p[1])+" "+p[0]; }
+  const porMes={};
+  cargas.forEach(function(c){ var k=mesKey(c.fecha); if(!k) return; if(!porMes[k]) porMes[k]={litros:0,diesel:0,gasolina:0,gasto:0,n:0}; var L=Number(c.litros)||0; var g=Number(c.total)||Number(c.total_factura)||0; porMes[k].litros+=L; porMes[k].gasto+=g; porMes[k].n+=1; if(/diesel|diésel/i.test(c.tipo||"")) porMes[k].diesel+=L; else if(/gasol/i.test(c.tipo||"")) porMes[k].gasolina+=L; });
+  const meses=Object.keys(porMes).sort().reverse();
+  const totL=meses.reduce(function(s,k){return s+porMes[k].litros;},0), totG=meses.reduce(function(s,k){return s+porMes[k].gasto;},0);
+  const cargando=cont.loading||pend.loading;
+  return h("div", null,
+    cargando && h("div",{style:{color:"#6a8a50",textAlign:"center",padding:30}},"Cargando…"),
+    !cargando && meses.length===0 && h("div",{style:{color:"#6a8a50",textAlign:"center",padding:30,fontStyle:"italic"}},"Sin cargas registradas"),
+    meses.length>0 && h("div",null,
+      h("div",{style:{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}},
+        h("div",{style:C.stat}, h("div",{style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}},"LITROS (TOTAL)"), h("div",{style:{fontSize:22,fontWeight:800,color:"#90c848"}}, fmtNum(totL)+" L")),
+        h("div",{style:C.stat}, h("div",{style:{fontSize:11,color:"#6a9050",letterSpacing:1.5,marginBottom:6}},"GASTO (TOTAL)"), h("div",{style:{fontSize:22,fontWeight:800,color:"#e8a030"}}, fmtMXN(totG)))
+      ),
+      h("div",{style:{overflowX:"auto"}}, h("table",{style:{minWidth:"100%"}},
+        h("thead",null,h("tr",null,h("th",null,"Mes"),h("th",{style:{textAlign:"right"}},"Diésel (L)"),h("th",{style:{textAlign:"right"}},"Gasolina (L)"),h("th",{style:{textAlign:"right"}},"Litros"),h("th",{style:{textAlign:"right"}},"Gasto"))),
+        h("tbody",null, meses.map(function(k){ return h("tr",{key:k},
+          h("td",null,mesNom(k)),
+          h("td",{style:{textAlign:"right"}}, porMes[k].diesel?fmtNum(porMes[k].diesel):"—"),
+          h("td",{style:{textAlign:"right"}}, porMes[k].gasolina?fmtNum(porMes[k].gasolina):"—"),
+          h("td",{style:{textAlign:"right",color:"#90c848",fontWeight:700}}, fmtNum(porMes[k].litros)),
+          h("td",{style:{textAlign:"right",color:"#e8a030",fontWeight:700}}, fmtMXN(porMes[k].gasto))
+        ); }))
+      )),
+      h("div",{style:{fontSize:11,color:"#7a9a68",marginTop:6}},"Agrupado por fecha de carga. Gasto = total del ticket.")
+    )
+  );
+}
+
 function SubCombustibleStock() {
   const stockData = useFetch(SHEETS_URL + "?accion=obtener_stock_combustible");
   const consumosData = useFetch(SHEETS_URL + "?accion=obtener_consumos_combustible");
