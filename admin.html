@@ -1844,9 +1844,8 @@ function SubCombustibleContabilizadas() {
 
 // ── Sub: Stock y consumos ────────────────────────────────────────────────────
 function SubCombustiblePorMes() {
-  const cont = useFetch(SHEETS_URL + "?accion=obtener_cargas_contabilizadas");
-  const pend = useFetch(SHEETS_URL + "?accion=obtener_cargas_pendientes");
-  const cargas = [].concat((cont.data&&cont.data.cargas)||[], (pend.data&&pend.data.cargas)||[]);
+  const todas = useFetch(SHEETS_URL + "?accion=obtener_cargas_todas");
+  const cargas = (todas.data&&todas.data.cargas)||[];
   const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
   function mesKey(f){ var s=String(f||""); var m=s.match(/(\d{4})-(\d{2})/); if(m) return m[1]+"-"+m[2]; var d=new Date(s); if(!isNaN(d.getTime())) return d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2); return ""; }
   function mesNom(k){ if(!k) return "—"; var p=k.split("-"); return (MESES[parseInt(p[1],10)-1]||p[1])+" "+p[0]; }
@@ -1854,7 +1853,7 @@ function SubCombustiblePorMes() {
   cargas.forEach(function(c){ var k=mesKey(c.fecha); if(!k) return; if(!porMes[k]) porMes[k]={litros:0,diesel:0,gasolina:0,gasto:0,n:0}; var L=Number(c.litros)||0; var g=Number(c.total)||Number(c.total_factura)||0; porMes[k].litros+=L; porMes[k].gasto+=g; porMes[k].n+=1; if(/diesel|diésel/i.test(c.tipo||"")) porMes[k].diesel+=L; else if(/gasol/i.test(c.tipo||"")) porMes[k].gasolina+=L; });
   const meses=Object.keys(porMes).sort().reverse();
   const totL=meses.reduce(function(s,k){return s+porMes[k].litros;},0), totG=meses.reduce(function(s,k){return s+porMes[k].gasto;},0);
-  const cargando=cont.loading||pend.loading;
+  const cargando=todas.loading;
   return h("div", null,
     cargando && h("div",{style:{color:"#6a8a50",textAlign:"center",padding:30}},"Cargando…"),
     !cargando && meses.length===0 && h("div",{style:{color:"#6a8a50",textAlign:"center",padding:30,fontStyle:"italic"}},"Sin cargas registradas"),
